@@ -1,0 +1,8 @@
+{
+  "name": "فتح قلمرو",
+  "description": "بازی استراتژیک دو بعدی تسخیر قلعه با نقشه طبیعی وورونوی، ۶ کشور رقیب، هوش مصنوعی تاکتیکی و ساختمان‌های نظامی.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
