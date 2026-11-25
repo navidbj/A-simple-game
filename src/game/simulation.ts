@@ -5,9 +5,12 @@ import {
   DIFFICULTIES,
   ECONOMY,
   FACTIONS,
+  MAX_BUILDING_LEVEL,
+  TERRITORY_COUNT,
 } from './constants';
 import { createRng, generateOrganicMap } from './mapGenerator';
 import type {
+  BuildingLevel,
   BuildingType,
   Difficulty,
   FactionId,
@@ -16,15 +19,21 @@ import type {
   GamePhase,
   GameSimulation,
   HudSnapshot,
+  MapPreset,
   PowerType,
   SimEvent,
   Territory,
 } from './types';
 
-export function createInitialMatch(seed: number, difficulty: Difficulty): GameSimulation {
-  const { map, territories } = generateOrganicMap(seed);
+export function createInitialMatch(
+  seed: number,
+  difficulty: Difficulty,
+  preset: MapPreset = 'continent'
+): GameSimulation {
+  const { map, territories } = generateOrganicMap(seed, TERRITORY_COUNT, preset);
   return {
     seed,
+    preset,
     difficulty,
     map,
     territories,
@@ -50,7 +59,58 @@ export function createInitialMatch(seed: number, difficulty: Difficulty): GameSi
     mapDirty: true,
     hitstopTimer: 0,
     shakeTrauma: 0,
+    timelapse: [
+      {
+        elapsed: 0,
+        owners: territories.map((t) => t.owner),
+      },
+    ],
+    timelapseTimer: 0,
   };
+}
+
+/** Appends an immutable territory ownership snapshot for the endgame Timelapse player */
+export function recordTimelapseSnapshot(sim: GameSimulation, force = false): void {
+  const owners = sim.territories.map((t) => t.owner);
+  const last = sim.timelapse[sim.timelapse.length - 1];
+  if (!force && last) {
+    let changed = last.owners.length !== owners.length;
+    if (!changed) {
+      for (let i = 0; i < owners.length; i++) {
+        if (last.owners[i] !== owners[i]) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) return;
+  }
+
+  sim.timelapse.push({
+    elapsed: sim.stats.elapsedSeconds,
+    owners,
+  });
+
+  // Cap stored snapshots while always preserving the opening and latest frames
+  if (sim.timelapse.length > 96) {
+    sim.timelapse.splice(1, 1);
+  }
+}
+
+/** Computes dynamic 16-bit soundtrack intensity: 0 (calm), 1 (skirmish), 2 (intense battle) */
+export function computeBattleIntensity(sim: GameSimulation): 0 | 1 | 2 {
+  if (sim.powers.blitzTimer > 0) return 2;
+
+  let enemyAttackingPlayer = false;
+  for (const tr of sim.troops) {
+    if (tr.owner !== 0 && sim.territories[tr.toId]?.owner === 0) {
+      enemyAttackingPlayer = true;
+      break;
+    }
+  }
+  if (enemyAttackingPlayer || sim.troops.length >= 6) return 2;
+  if (sim.troops.length >= 2) return 1;
+  return 0;
 }
 
 /** Finds which territory contains a world point (direct castle radius + organic Voronoi lookup) */
@@ -81,18 +141,53 @@ export function getTerritoryAtPoint(
   return sim.territories[cellId];
 }
 
+type BuildingStateLike = Pick<
+  Territory,
+  'hasBarracks' | 'hasTower' | 'hasMine' | 'hasForge' | 'hasPort'
+> & {
+  buildingLevels?: Record<BuildingType, BuildingLevel>;
+};
+
+export function getBuildingLevel(
+  t: BuildingStateLike,
+  building: BuildingType
+): BuildingLevel {
+  const raw = t.buildingLevels?.[building] ?? 0;
+  const legacyBuilt =
+    building === 'barracks'
+      ? t.hasBarracks
+      : building === 'tower'
+        ? t.hasTower
+        : building === 'mine'
+          ? t.hasMine
+          : building === 'port'
+            ? t.hasPort
+            : t.hasForge;
+  const eff = Math.max(raw, legacyBuilt ? 1 : 0);
+  return Math.min(MAX_BUILDING_LEVEL, Math.max(0, eff)) as BuildingLevel;
+}
+
+export function getNextBuildingCost(
+  t: BuildingStateLike,
+  building: BuildingType
+): number | null {
+  const lvl = getBuildingLevel(t, building);
+  if (lvl === 3) return null;
+  return BUILDINGS[building].levelCosts[lvl];
+}
+
 export function getTerritoryRates(t: Territory, growthBonus = 1.0) {
   const biome = BIOMES[t.biome];
-  const maxManpower = t.hasMine ? ECONOMY.MINE_MAX_MANPOWER : ECONOMY.BASE_MAX_MANPOWER;
+  const mineLvl = getBuildingLevel(t, 'mine');
+  const barracksLvl = getBuildingLevel(t, 'barracks');
+  const maxManpower = ECONOMY.MINE_MAX_MANPOWER_LEVELS[mineLvl];
   const manpowerRate =
-    (t.hasMine ? ECONOMY.MINE_MANPOWER_GROWTH : ECONOMY.BASE_MANPOWER_GROWTH) *
+    ECONOMY.MINE_MANPOWER_GROWTH_LEVELS[mineLvl] *
     biome.manpowerGrowthMult *
     growthBonus;
   const conversionSpeed =
-    ECONOMY.BASE_CONVERSION_RATE * (t.hasBarracks ? ECONOMY.BARRACKS_CONVERSION_MULTIPLIER : 1.0);
-  const conversionYield = t.hasBarracks
-    ? ECONOMY.BARRACKS_CONVERSION_YIELD
-    : ECONOMY.BASE_CONVERSION_YIELD;
+    ECONOMY.BASE_CONVERSION_RATE * ECONOMY.BARRACKS_CONVERSION_MULTIPLIERS[barracksLvl];
+  const conversionYield = ECONOMY.BARRACKS_CONVERSION_YIELDS[barracksLvl];
 
   return {
     maxManpower,
@@ -104,19 +199,18 @@ export function getTerritoryRates(t: Territory, growthBonus = 1.0) {
 }
 
 export function isBuildingBuilt(
-  t: Pick<Territory, 'hasBarracks' | 'hasTower' | 'hasMine' | 'hasForge'>,
+  t: BuildingStateLike,
   building: BuildingType
 ): boolean {
-  if (building === 'barracks') return t.hasBarracks;
-  if (building === 'tower') return t.hasTower;
-  if (building === 'mine') return t.hasMine;
-  return t.hasForge;
+  return getBuildingLevel(t, building) >= 1;
 }
 
 export function canBuildStructure(t: Territory, building: BuildingType): boolean {
   if (t.owner === -1) return false;
-  if (isBuildingBuilt(t, building)) return false;
-  return t.military >= BUILDINGS[building].cost;
+  const nextCost = getNextBuildingCost(t, building);
+  if (nextCost === null) return false;
+  if (building === 'port' && !t.isCoastal) return false;
+  return t.military >= nextCost;
 }
 
 export function buildStructure(
@@ -130,11 +224,19 @@ export function buildStructure(
   if (!t || t.owner !== requester) return false;
   if (!canBuildStructure(t, building)) return false;
 
-  t.military -= BUILDINGS[building].cost;
+  const currentLvl = getBuildingLevel(t, building);
+  if (currentLvl === 3) return false;
+  const nextCost = BUILDINGS[building].levelCosts[currentLvl];
+  const newLevel = (currentLvl + 1) as BuildingLevel;
+
+  t.military -= nextCost;
+  t.buildingLevels[building] = newLevel;
   if (building === 'barracks') t.hasBarracks = true;
   if (building === 'tower') t.hasTower = true;
   if (building === 'mine') t.hasMine = true;
   if (building === 'forge') t.hasForge = true;
+  if (building === 'port') t.hasPort = true;
+  t.capturePulse = Math.max(t.capturePulse, newLevel === 3 ? 0.85 : newLevel === 2 ? 0.58 : 0.35);
 
   if (requester === 0) {
     sim.stats.buildingsConstructed += 1;
@@ -145,7 +247,10 @@ export function buildStructure(
     x: t.x,
     y: t.y,
     owner: requester,
+    territoryId: t.id,
+    territoryName: t.name,
     building,
+    buildingLevel: newLevel,
   });
 
   return true;
@@ -230,10 +335,184 @@ export function triggerCommanderPower(
   return false;
 }
 
+export interface DispatchCheck {
+  allowed: boolean;
+  isNaval: boolean;
+  reason?: 'invalid' | 'not_neighbor';
+}
+
+export function canDispatchTo(
+  sim: GameSimulation,
+  fromId: number,
+  toId: number
+): DispatchCheck {
+  if (fromId === toId) return { allowed: false, isNaval: false, reason: 'invalid' };
+  const from = sim.territories[fromId];
+  const to = sim.territories[toId];
+  if (!from || !to) return { allowed: false, isNaval: false, reason: 'invalid' };
+  if (from.neighbors.includes(toId)) {
+    return { allowed: true, isNaval: false };
+  }
+  if (from.hasPort && to.isCoastal) {
+    return { allowed: true, isNaval: true };
+  }
+  return { allowed: false, isNaval: false, reason: 'not_neighbor' };
+}
+
+/** Computes a curved over-water quadratic Bezier route between two coastal ports/shores */
+export function computeNavalRoute(
+  sim: GameSimulation,
+  from: Territory,
+  to: Territory
+): {
+  startX: number;
+  startY: number;
+  viaX: number;
+  viaY: number;
+  targetX: number;
+  targetY: number;
+} {
+  const start = from.coastPoint ?? { x: from.x, y: from.y };
+  const end = to.coastPoint ?? { x: to.x, y: to.y };
+  const mx = (start.x + end.x) * 0.5;
+  const my = (start.y + end.y) * 0.5;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const nx = -dy / dist;
+  const ny = dx / dist;
+
+  const { map } = sim;
+  const clampX = (v: number) => Math.max(18, Math.min(map.width - 18, v));
+  const clampY = (v: number) => Math.max(18, Math.min(map.height - 18, v));
+
+  const scoreWater = (cx: number, cy: number): number => {
+    let waterSamples = 0;
+    const samples = 9;
+    for (let i = 1; i < samples; i++) {
+      const t = i / samples;
+      const mt = 1 - t;
+      const px = mt * mt * start.x + 2 * mt * t * cx + t * t * end.x;
+      const py = mt * mt * start.y + 2 * mt * t * cy + t * t * end.y;
+      const gx = Math.floor(px / map.step);
+      const gy = Math.floor(py / map.step);
+      if (gx < 0 || gy < 0 || gx >= map.cols || gy >= map.rows) continue;
+      if (map.cells[gy * map.cols + gx] === -1) waterSamples++;
+    }
+    return waterSamples;
+  };
+
+  let bestX = clampX(mx);
+  let bestY = clampY(my);
+  let bestScore = scoreWater(bestX, bestY);
+
+  const offsets = [55, -55, 115, -115, 185, -185, 250, -250];
+  for (const off of offsets) {
+    const cx = clampX(mx + nx * off);
+    const cy = clampY(my + ny * off);
+    const s = scoreWater(cx, cy);
+    if (s > bestScore) {
+      bestScore = s;
+      bestX = cx;
+      bestY = cy;
+    }
+  }
+
+  return {
+    startX: start.x,
+    startY: start.y,
+    viaX: bestX,
+    viaY: bestY,
+    targetX: end.x,
+    targetY: end.y,
+  };
+}
+
+export interface SupplyRouteResult {
+  ok: boolean;
+  action?: 'set' | 'cleared';
+  reason?: 'invalid' | 'not_owner' | 'not_neighbor' | 'target_not_friendly';
+}
+
+export function setSupplyRoute(
+  sim: GameSimulation,
+  fromId: number,
+  toId: number,
+  requester: Exclude<FactionId, -1>,
+  events?: SimEvent[]
+): SupplyRouteResult {
+  if (fromId === toId) return { ok: false, reason: 'invalid' };
+  const from = sim.territories[fromId];
+  const to = sim.territories[toId];
+  if (!from || !to) return { ok: false, reason: 'invalid' };
+  if (from.owner !== requester) return { ok: false, reason: 'not_owner' };
+  if (!from.neighbors.includes(toId)) return { ok: false, reason: 'not_neighbor' };
+  if (to.owner !== requester) return { ok: false, reason: 'target_not_friendly' };
+
+  if (from.supplyTargetId === toId) {
+    from.supplyTargetId = null;
+    from.supplyTimer = 0;
+    events?.push({
+      type: 'supply_clear',
+      x: from.x,
+      y: from.y,
+      owner: requester,
+      territoryId: from.id,
+      territoryName: from.name,
+    });
+    return { ok: true, action: 'cleared' };
+  }
+
+  // Prevent infinite ping-pong loops between two friendly castles
+  if (to.supplyTargetId === fromId) {
+    to.supplyTargetId = null;
+    to.supplyTimer = 0;
+  }
+
+  from.supplyTargetId = toId;
+  // Trigger first caravan quickly (~0.7s) for crisp player feedback
+  from.supplyTimer = Math.max(0, ECONOMY.AUTO_SUPPLY_INTERVAL - 0.7);
+  events?.push({
+    type: 'supply_set',
+    x: from.x,
+    y: from.y,
+    toX: to.x,
+    toY: to.y,
+    owner: requester,
+    territoryId: from.id,
+    targetId: to.id,
+    territoryName: from.name,
+    targetName: to.name,
+  });
+  return { ok: true, action: 'set' };
+}
+
+export function clearSupplyRoute(
+  sim: GameSimulation,
+  fromId: number,
+  requester: Exclude<FactionId, -1>,
+  events?: SimEvent[]
+): boolean {
+  const from = sim.territories[fromId];
+  if (!from || from.owner !== requester || from.supplyTargetId === null) return false;
+  from.supplyTargetId = null;
+  from.supplyTimer = 0;
+  events?.push({
+    type: 'supply_clear',
+    x: from.x,
+    y: from.y,
+    owner: requester,
+    territoryId: from.id,
+    territoryName: from.name,
+  });
+  return true;
+}
+
 export interface DispatchResult {
   ok: boolean;
   reason?: 'invalid' | 'not_owner' | 'not_neighbor' | 'insufficient_troops';
   sent?: number;
+  isNaval?: boolean;
 }
 
 export function dispatchTroops(
@@ -249,7 +528,9 @@ export function dispatchTroops(
   const to = sim.territories[toId];
   if (!from || !to) return { ok: false, reason: 'invalid' };
   if (from.owner !== requester) return { ok: false, reason: 'not_owner' };
-  if (!from.neighbors.includes(toId)) return { ok: false, reason: 'not_neighbor' };
+
+  const routeCheck = canDispatchTo(sim, fromId, toId);
+  if (!routeCheck.allowed) return { ok: false, reason: routeCheck.reason ?? 'not_neighbor' };
 
   const clampedRatio = Math.max(0.1, Math.min(1.0, ratio));
   const maxSendable = Math.floor(from.military - 1);
@@ -258,32 +539,61 @@ export function dispatchTroops(
   const amount = Math.max(1, Math.min(maxSendable, Math.floor(from.military * clampedRatio)));
   from.military -= amount;
 
-  const crossing = from.borderCrossings[toId] ?? {
-    x: (from.x + to.x) * 0.5,
-    y: (from.y + to.y) * 0.5,
-  };
+  const isNaval = routeCheck.isNaval;
+  let startX = from.x;
+  let startY = from.y;
+  let viaX: number;
+  let viaY: number;
+  let targetX = to.x;
+  let targetY = to.y;
 
-  const attackMultiplier = from.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
+  if (isNaval) {
+    const naval = computeNavalRoute(sim, from, to);
+    startX = naval.startX;
+    startY = naval.startY;
+    viaX = naval.viaX;
+    viaY = naval.viaY;
+    targetX = naval.targetX;
+    targetY = naval.targetY;
+  } else {
+    const crossing = from.borderCrossings[toId] ?? {
+      x: (from.x + to.x) * 0.5,
+      y: (from.y + to.y) * 0.5,
+    };
+    viaX = crossing.x;
+    viaY = crossing.y;
+  }
+
+  const forgeLvl = getBuildingLevel(from, 'forge');
+  const portLvl = getBuildingLevel(from, 'port');
+  const attackMultiplier =
+    ECONOMY.FORGE_ATTACK_MULTIPLIERS[forgeLvl] *
+    (isNaval ? ECONOMY.PORT_NAVAL_ATTACK_MULTIPLIERS[portLvl] : 1.0);
+  const troopSpeed = isNaval
+    ? ECONOMY.NAVAL_SPEED * ECONOMY.PORT_NAVAL_SPEED_MULTIPLIERS[portLvl]
+    : ECONOMY.TROOP_SPEED;
+  const isElite = forgeLvl >= 1 || (isNaval && portLvl >= 3) || amount >= 25;
 
   sim.troops.push({
     id: sim.nextTroopId++,
     fromId,
     toId,
-    startX: from.x,
-    startY: from.y,
-    viaX: crossing.x,
-    viaY: crossing.y,
-    targetX: to.x,
-    targetY: to.y,
-    x: from.x,
-    y: from.y,
-    facingLeft: to.x < from.x,
+    startX,
+    startY,
+    viaX,
+    viaY,
+    targetX,
+    targetY,
+    x: startX,
+    y: startY,
+    facingLeft: targetX < startX,
     progress: 0,
-    speed: ECONOMY.TROOP_SPEED,
+    speed: troopSpeed,
     count: amount,
     owner: requester,
     attackMultiplier,
-    isElite: from.hasForge || amount >= 25,
+    isElite,
+    isNaval,
   });
 
   if (requester === 0) {
@@ -292,16 +602,22 @@ export function dispatchTroops(
 
   events?.push({
     type: 'dispatch',
-    x: from.x,
-    y: from.y,
-    toX: crossing.x,
-    toY: crossing.y,
+    x: startX,
+    y: startY,
+    toX: viaX,
+    toY: viaY,
     owner: requester,
+    previousOwner: to.owner,
+    territoryId: from.id,
+    targetId: to.id,
+    territoryName: from.name,
+    targetName: to.name,
     amount,
-    isElite: from.hasForge || amount >= 25,
+    isElite,
+    isNaval,
   });
 
-  return { ok: true, sent: amount };
+  return { ok: true, sent: amount, isNaval };
 }
 
 /** Quadratic Bezier interpolation through shared border crossing */
@@ -323,7 +639,8 @@ function evalRoutePoint(
 
 function getEffectiveDefenseMultiplier(target: Territory): number {
   let mult = BIOMES[target.biome].defenseDamageMult;
-  if (target.hasTower) mult *= ECONOMY.TOWER_DAMAGE_MULTIPLIER;
+  const towerLvl = getBuildingLevel(target, 'tower');
+  if (towerLvl > 0) mult *= ECONOMY.TOWER_DAMAGE_MULTIPLIERS[towerLvl];
   if (target.shieldTimer > 0) mult *= ECONOMY.SHIELD_DAMAGE_MULTIPLIER;
   return mult;
 }
@@ -391,6 +708,7 @@ function resolveTroopArrival(
   }
 
   // Conquest! Divide remaining effective damage by both defense and attack multipliers
+  const previousOwner = target.owner;
   const damagePerSoldier = Math.max(0.05, defenseMult * troop.attackMultiplier);
   const remaining = Math.max(1, (effectiveAttack - target.military) / damagePerSoldier);
   target.owner = troop.owner;
@@ -400,9 +718,27 @@ function resolveTroopArrival(
   target.hasTower = false;
   target.hasMine = false;
   target.hasForge = false;
+  target.hasPort = false;
+  target.buildingLevels.barracks = 0;
+  target.buildingLevels.tower = 0;
+  target.buildingLevels.mine = 0;
+  target.buildingLevels.forge = 0;
+  target.buildingLevels.port = 0;
   target.shieldTimer = 0;
+  target.supplyTargetId = null;
+  target.supplyTimer = 0;
   target.capturePulse = 1.0;
   sim.mapDirty = true;
+
+  // Sever any auto-supply routes pointing into the fallen castle
+  for (const other of sim.territories) {
+    if (other.supplyTargetId === target.id && other.owner !== target.owner) {
+      other.supplyTargetId = null;
+      other.supplyTimer = 0;
+    }
+  }
+
+  recordTimelapseSnapshot(sim, false);
 
   if (troop.owner === 0) {
     sim.stats.territoriesCaptured += 1;
@@ -420,8 +756,12 @@ function resolveTroopArrival(
     fromX: troop.viaX,
     fromY: troop.viaY,
     owner: troop.owner,
+    previousOwner,
+    territoryId: target.id,
+    territoryName: target.name,
     amount: Math.round(target.military),
     isElite: troop.isElite,
+    isNaval: troop.isNaval,
     capturedByPlayer: troop.owner === 0,
   });
 }
@@ -488,32 +828,38 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
     const isFrontline = enemyNeighbors.length > 0;
     const safeMilitary = t.military - incomingThreat[t.id] * getEffectiveDefenseMultiplier(t);
 
-    // 1. Strategic Building Decisions (including War Forge for aggressors!)
+    // 1. Strategic Building & Upgrade Decisions (Lv.1 -> Lv.2 -> Lv.3)
     if (safeMilitary >= 28) {
+      const mineCost = getNextBuildingCost(t, 'mine');
+      const mineLvl = getBuildingLevel(t, 'mine');
       if (
-        !t.hasMine &&
-        t.military >= BUILDINGS.mine.cost + (isFrontline ? 14 : 6) &&
+        mineCost !== null &&
+        t.military >= mineCost + (isFrontline ? 14 : 6) + mineLvl * 6 &&
         (!isFrontline || t.biome === 'fertile' || personality === 'fortifier')
       ) {
         buildStructure(sim, t.id, 'mine', t.owner, events);
         continue;
       }
 
+      const forgeCost = getNextBuildingCost(t, 'forge');
+      const forgeLvl = getBuildingLevel(t, 'forge');
       if (
-        !t.hasForge &&
+        forgeCost !== null &&
         isFrontline &&
-        t.military >= BUILDINGS.forge.cost + 12 &&
+        t.military >= forgeCost + 12 + forgeLvl * 6 &&
         (personality === 'aggressor' || personality === 'opportunist')
       ) {
         buildStructure(sim, t.id, 'forge', t.owner, events);
         continue;
       }
 
+      const towerCost = getNextBuildingCost(t, 'tower');
+      const towerLvl = getBuildingLevel(t, 'tower');
       if (
-        !t.hasTower &&
+        towerCost !== null &&
         isFrontline &&
         enemyNeighbors.length >= 2 &&
-        t.military >= BUILDINGS.tower.cost + 10 &&
+        t.military >= towerCost + 10 + towerLvl * 6 &&
         (personality === 'fortifier' ||
           t.biome === 'mountain' ||
           enemyNeighbors.some((e) => e.owner === 0))
@@ -522,7 +868,9 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
         continue;
       }
 
-      if (!t.hasBarracks && t.military >= BUILDINGS.barracks.cost + 8) {
+      const barCost = getNextBuildingCost(t, 'barracks');
+      const barLvl = getBuildingLevel(t, 'barracks');
+      if (barCost !== null && t.military >= barCost + 8 + barLvl * 8) {
         buildStructure(sim, t.id, 'barracks', t.owner, events);
         continue;
       }
@@ -551,7 +899,7 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
 
       let bestTarget: Territory | null = null;
       let bestScore = -Infinity;
-      const myAttackMult = t.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
+      const myAttackMult = ECONOMY.FORGE_ATTACK_MULTIPLIERS[getBuildingLevel(t, 'forge')];
 
       for (const n of enemyNeighbors) {
         const defMult = getEffectiveDefenseMultiplier(n);
@@ -629,6 +977,7 @@ export function computeFactionPowers(sim: GameSimulation): FactionPowerEntry[] {
 export interface AttackPreview {
   sendAmount: number;
   isFriendly: boolean;
+  isNaval: boolean;
   effectiveAttack: number;
   defenderMilitary: number;
   willConquer: boolean;
@@ -636,7 +985,7 @@ export interface AttackPreview {
   defenseBonusPct: number;
 }
 
-/** Computes an accurate live preview of dispatching troops from one territory to an adjacent neighbor */
+/** Computes an accurate live preview of dispatching troops from one territory to an adjacent or naval target */
 export function previewAttackOutcome(
   sim: GameSimulation,
   fromId: number,
@@ -645,7 +994,9 @@ export function previewAttackOutcome(
 ): AttackPreview | null {
   const from = sim.territories[fromId];
   const to = sim.territories[toId];
-  if (!from || !to || !from.neighbors.includes(toId)) return null;
+  if (!from || !to) return null;
+  const check = canDispatchTo(sim, fromId, toId);
+  if (!check.allowed) return null;
 
   const clampedRatio = Math.max(0.1, Math.min(1.0, ratio));
   const maxSendable = Math.max(0, Math.floor(from.military - 1));
@@ -656,6 +1007,7 @@ export function previewAttackOutcome(
     return {
       sendAmount,
       isFriendly: true,
+      isNaval: check.isNaval,
       effectiveAttack: sendAmount,
       defenderMilitary: Math.floor(to.military),
       willConquer: false,
@@ -664,7 +1016,9 @@ export function previewAttackOutcome(
     };
   }
 
-  const attackMult = from.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
+  const attackMult =
+    ECONOMY.FORGE_ATTACK_MULTIPLIERS[getBuildingLevel(from, 'forge')] *
+    (check.isNaval ? ECONOMY.PORT_NAVAL_ATTACK_MULTIPLIERS[getBuildingLevel(from, 'port')] : 1.0);
   const defenseMult = getEffectiveDefenseMultiplier(to);
   const effectiveAttack = sendAmount * attackMult * defenseMult;
   const defenderMilitary = to.military;
@@ -673,6 +1027,7 @@ export function previewAttackOutcome(
   return {
     sendAmount,
     isFriendly: false,
+    isNaval: check.isNaval,
     effectiveAttack,
     defenderMilitary,
     willConquer: effectiveAttack > defenderMilitary,
@@ -820,9 +1175,26 @@ export function stepSimulation(
       t.manpower -= convertible;
       t.military += convertible * rates.conversionYield;
     }
+
+    // 1b. Auto-Supply Line Reinforcement Caravans
+    if (t.supplyTargetId !== null) {
+      const dest = sim.territories[t.supplyTargetId];
+      if (!dest || dest.owner !== t.owner || !t.neighbors.includes(t.supplyTargetId)) {
+        t.supplyTargetId = null;
+        t.supplyTimer = 0;
+      } else {
+        t.supplyTimer += dt;
+        if (t.supplyTimer >= ECONOMY.AUTO_SUPPLY_INTERVAL) {
+          t.supplyTimer -= ECONOMY.AUTO_SUPPLY_INTERVAL;
+          if (t.military >= ECONOMY.AUTO_SUPPLY_MIN_MILITARY) {
+            dispatchTroops(sim, t.id, dest.id, ECONOMY.AUTO_SUPPLY_RATIO, t.owner, events);
+          }
+        }
+      }
+    }
   }
 
-  // 2. Advance Marching Troops along Border Crossing Curves
+  // 2. Advance Marching Troops & Naval Warships along Border Crossing / Sea Curves
   for (let i = sim.troops.length - 1; i >= 0; i--) {
     const tr = sim.troops[i];
     const approxLen =
@@ -866,11 +1238,21 @@ export function stepSimulation(
     evaluateAI(sim, events, demoMode);
   }
 
-  // 4. Victory / Defeat Check (active gameplay only)
+  // 4. Periodic Timelapse Keyframe Capture
+  if (!demoMode) {
+    sim.timelapseTimer += dt;
+    if (sim.timelapseTimer >= 4.0) {
+      sim.timelapseTimer -= 4.0;
+      recordTimelapseSnapshot(sim, false);
+    }
+  }
+
+  // 5. Victory / Defeat Check (active gameplay only)
   if (!demoMode) {
     const outcome = checkGameOutcome(sim);
     if (outcome !== 'none' && sim.outcome === 'none') {
       sim.outcome = outcome;
+      recordTimelapseSnapshot(sim, true);
       events.push({
         type: outcome,
         x: sim.map.width * 0.5,
@@ -911,6 +1293,12 @@ export function buildHudSnapshot(
   if (sel) {
     const bonus = sel.owner <= 0 ? 1.0 : DIFFICULTIES[sim.difficulty].aiGrowthBonus;
     const rates = getTerritoryRates(sel, bonus);
+    const friendlyNeighborCount = sel.neighbors.filter(
+      (nId) => sim.territories[nId]?.owner === sel.owner
+    ).length;
+    const supplyTarget =
+      sel.supplyTargetId !== null ? sim.territories[sel.supplyTargetId] ?? null : null;
+
     selectedTerritory = {
       id: sel.id,
       name: sel.name,
@@ -925,8 +1313,20 @@ export function buildHudSnapshot(
       hasTower: sel.hasTower,
       hasMine: sel.hasMine,
       hasForge: sel.hasForge,
+      hasPort: sel.hasPort,
+      buildingLevels: {
+        barracks: getBuildingLevel(sel, 'barracks'),
+        tower: getBuildingLevel(sel, 'tower'),
+        mine: getBuildingLevel(sel, 'mine'),
+        forge: getBuildingLevel(sel, 'forge'),
+        port: getBuildingLevel(sel, 'port'),
+      },
+      isCoastal: sel.isCoastal,
       shieldTimer: sel.shieldTimer,
       neighborCount: sel.neighbors.length,
+      friendlyNeighborCount,
+      supplyTargetId: supplyTarget ? supplyTarget.id : null,
+      supplyTargetName: supplyTarget ? supplyTarget.name : null,
     };
   }
 
@@ -934,6 +1334,7 @@ export function buildHudSnapshot(
     phase,
     outcome: sim.outcome,
     difficulty: sim.difficulty,
+    mapPreset: sim.preset,
     sendRatio,
     selectedId,
     selectedTerritory,

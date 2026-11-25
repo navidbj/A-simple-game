@@ -594,6 +594,13 @@ export function generateOrganicMap(
       hasMine: false,
       hasForge: false,
       hasPort: false,
+      buildingLevels: {
+        barracks: 0,
+        tower: 0,
+        mine: 0,
+        forge: 0,
+        port: 0,
+      },
       isCoastal,
       coastPoint: isCoastal ? bestCoastPoint[id] : null,
       neighbors,
@@ -608,60 +615,449 @@ export function generateOrganicMap(
     };
   });
 
-  // Scatter pixel-art biome props (trees, mountains, wheat) safely away from castles & borders
+  // Dedicated deterministic cartography sub-RNG so territory geometry/RNG stays 100% untouched
+  const artRng = createRng((seed ^ 0x9e3779b9) >>> 0);
+
+  // 5. Carve Natural Winding Rivers from High-Elevation Sources to the Sea
+  const riverMask = new Uint8Array(cols * rows);
+  const riverSparkles: Array<{ x: number; y: number; phase: number }> = [];
+
+  const targetRiverCount = preset === 'archipelago' ? 2 : 3;
+  const riverSources = [...territories]
+    .filter((t) => {
+      const gx = Math.floor(t.x / step);
+      const gy = Math.floor(t.y / step);
+      const elev = elevation[gy * cols + gx] ?? 128;
+      return elev >= 145 || t.biome === 'mountain' || !t.isCoastal;
+    })
+    .sort((a, b) => {
+      const ea = elevation[Math.floor(a.y / step) * cols + Math.floor(a.x / step)] ?? 0;
+      const eb = elevation[Math.floor(b.y / step) * cols + Math.floor(b.x / step)] ?? 0;
+      const scoreA = ea + (a.biome === 'mountain' ? 40 : 0) - (a.isCoastal ? 22 : 0);
+      const scoreB = eb + (b.biome === 'mountain' ? 40 : 0) - (b.isCoastal ? 22 : 0);
+      return scoreB - scoreA;
+    });
+
+  const usedRiverOrigins: Array<{ x: number; y: number }> = [];
+  let riversCarved = 0;
+
+  for (const src of riverSources) {
+    if (riversCarved >= targetRiverCount) break;
+    if (usedRiverOrigins.some((o) => Math.hypot(o.x - src.x, o.y - src.y) < 220)) continue;
+
+    // Pick a spring offset cleanly outside the castle center (38-58px away)
+    let startGx = -1;
+    let startGy = -1;
+    let bestStartElev = -1;
+    for (let attempt = 0; attempt < 28; attempt++) {
+      const ang = artRng() * Math.PI * 2;
+      const dist = 38 + artRng() * 24;
+      const sx = Math.floor((src.x + Math.cos(ang) * dist) / step);
+      const sy = Math.floor((src.y + Math.sin(ang) * dist) / step);
+      if (sx < 4 || sy < 4 || sx >= cols - 4 || sy >= rows - 4) continue;
+      const idx = sy * cols + sx;
+      if (cells[idx] < 0 || riverMask[idx] > 0) continue;
+      const px = sx * step;
+      const py = sy * step;
+      if (territories.some((ot) => Math.hypot(ot.x - px, ot.y - py) < 34)) continue;
+      if (elevation[idx] > bestStartElev) {
+        bestStartElev = elevation[idx];
+        startGx = sx;
+        startGy = sy;
+      }
+    }
+    if (startGx < 0) continue;
+
+    // Trace downhill with natural S-curve perpendicular meander, confluence merging, and castle repulsion
+    const path: Array<{ gx: number; gy: number }> = [{ gx: startGx, gy: startGy }];
+    const visited = new Set<number>([startGy * cols + startGx]);
+    let curGx = startGx;
+    let curGy = startGy;
+    let prevDx = 0;
+    let prevDy = 0;
+    let reachedWater = false;
+    const meanderPhase = artRng() * Math.PI * 2;
+    const meanderFreq = 0.2 + artRng() * 0.1;
+
+    for (let stepIdx = 0; stepIdx < 170; stepIdx++) {
+      let bestNx = -1;
+      let bestNy = -1;
+      let bestScore = Infinity;
+
+      // Smooth oscillating lateral pull to create realistic winding river bends
+      const bendBias = Math.sin(stepIdx * meanderFreq + meanderPhase) * 9.5;
+      const perpX = prevDx === 0 && prevDy === 0 ? 0 : -prevDy;
+      const perpY = prevDx === 0 && prevDy === 0 ? 0 : prevDx;
+
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = curGx + dx;
+          const ny = curGy + dy;
+          if (nx < 1 || ny < 1 || nx >= cols - 1 || ny >= rows - 1) continue;
+          const nIdx = ny * cols + nx;
+          if (visited.has(nIdx)) continue;
+
+          // If ocean cell or an existing river channel is reached, finish cleanly as mouth/confluence!
+          if (cells[nIdx] === -1 || (stepIdx > 10 && riverMask[nIdx] > 0)) {
+            bestNx = nx;
+            bestNy = ny;
+            bestScore = -9999;
+            reachedWater = true;
+            break;
+          }
+
+          const wx = nx * step;
+          const wy = ny * step;
+          // Gently push river around castle footprints so it frames fortresses cleanly
+          let castlePenalty = 0;
+          for (const ot of territories) {
+            const cd = Math.hypot(ot.x - wx, ot.y - wy);
+            if (cd < 36) castlePenalty += (36 - cd) * 20;
+            if (Math.abs(wx - ot.x) < 44 && wy > ot.y + 8 && wy < ot.y + 42) {
+              castlePenalty += 130;
+            }
+          }
+
+          // Smooth directional momentum + organic perpendicular S-curve meander
+          const norm = Math.hypot(dx, dy);
+          const dot = (prevDx * dx + prevDy * dy) / norm;
+          const turnPenalty = prevDx === 0 && prevDy === 0 ? 0 : (1 - dot) * 7.5;
+          const lateralAlign = (dx * perpX + dy * perpY) / norm;
+          const meander = -lateralAlign * bendBias;
+          // Mildly prefer orthogonal/soft bends over rigid 45-degree diagonal laser lines
+          const diagNudge = dx !== 0 && dy !== 0 ? 2.2 : 0;
+          const elevScore = elevation[nIdx] + castlePenalty + turnPenalty + meander + diagNudge;
+
+          if (elevScore < bestScore) {
+            bestScore = elevScore;
+            bestNx = nx;
+            bestNy = ny;
+          }
+        }
+        if (reachedWater) break;
+      }
+
+      if (bestNx < 0) break;
+      prevDx = bestNx - curGx;
+      prevDy = bestNy - curGy;
+      curGx = bestNx;
+      curGy = bestNy;
+      visited.add(curGy * cols + curGx);
+
+      if (reachedWater) break;
+      path.push({ gx: curGx, gy: curGy });
+    }
+
+    const minLen = preset === 'archipelago' ? 9 : 16;
+    if (reachedWater && path.length >= minLen) {
+      usedRiverOrigins.push({ x: startGx * step, y: startGy * step });
+      riversCarved++;
+      for (let pIdx = 0; pIdx < path.length; pIdx++) {
+        const pt = path[pIdx];
+        const ratio = pIdx / Math.max(1, path.length - 1);
+        const isWide = ratio > 0.62;
+        const cIdx = pt.gy * cols + pt.gx;
+        if (cells[cIdx] >= 0) {
+          riverMask[cIdx] = isWide ? 2 : 1;
+        }
+        // Widen lower estuary slightly with 1 adjacent land cell
+        if (isWide) {
+          const rightIdx = pt.gy * cols + Math.min(cols - 1, pt.gx + 1);
+          const downIdx = Math.min(rows - 1, pt.gy + 1) * cols + pt.gx;
+          if (cells[rightIdx] >= 0) riverMask[rightIdx] = Math.max(riverMask[rightIdx], 1);
+          if (ratio > 0.84 && cells[downIdx] >= 0) {
+            riverMask[downIdx] = Math.max(riverMask[downIdx], 1);
+          }
+        }
+        if (pIdx % 5 === 2) {
+          riverSparkles.push({
+            x: pt.gx * step + 1,
+            y: pt.gy * step + 1,
+            phase: (pIdx * 0.55 + riversCarved * 1.9) % (Math.PI * 2),
+          });
+        }
+      }
+    }
+  }
+
+  // 6. Extract Animated Shoreline Surf Crest Anchors
+  const coastSurf: MapGridData['coastSurf'] = [];
+  for (let gy = 2; gy < rows - 2; gy += 2) {
+    for (let gx = 2; gx < cols - 2; gx += 2) {
+      const idx = gy * cols + gx;
+      if (cells[idx] !== -1) continue;
+      const landRight = cells[idx + 1] >= 0 ? 1 : 0;
+      const landLeft = cells[idx - 1] >= 0 ? 1 : 0;
+      const landDown = cells[idx + cols] >= 0 ? 1 : 0;
+      const landUp = cells[idx - cols] >= 0 ? 1 : 0;
+      if (landRight + landLeft + landDown + landUp === 0) continue;
+
+      const nx = landLeft - landRight;
+      const ny = landUp - landDown;
+      const px = gx * step;
+      const py = gy * step;
+      if (coastSurf.some((s) => Math.hypot(s.x - px, s.y - py) < 16)) continue;
+
+      coastSurf.push({
+        x: px,
+        y: py,
+        nx,
+        ny,
+        phase: (gx * 0.19 + gy * 0.13) % (Math.PI * 2),
+      });
+    }
+  }
+
+  // 7. Populate Living Ocean Features (Coral Reefs, Sea Stacks, Merchant Boats, Sea Life)
+  const oceanFeatures: MapGridData['oceanFeatures'] = [];
+
+  const isNearBridge = (px: number, py: number): boolean => {
+    for (const t of territories) {
+      for (const nId of t.bridgeNeighbors) {
+        if (t.id >= nId) continue;
+        const n = territories[nId];
+        const mx = (t.x + n.x) * 0.5;
+        const my = (t.y + n.y) * 0.5;
+        if (Math.hypot(px - mx, py - my) < 55) return true;
+        // Distance to segment
+        const vx = n.x - t.x;
+        const vy = n.y - t.y;
+        const lenSq = vx * vx + vy * vy || 1;
+        const proj = Math.max(0, Math.min(1, ((px - t.x) * vx + (py - t.y) * vy) / lenSq));
+        const cx = t.x + vx * proj;
+        const cy = t.y + vy * proj;
+        if (Math.hypot(px - cx, py - cy) < 28) return true;
+      }
+    }
+    return false;
+  };
+
+  // 7a. Turquoise Coral Reefs / Shoals
+  const reefTarget = preset === 'archipelago' ? 10 : preset === 'middle_east' ? 7 : 5;
+  for (let attempt = 0; attempt < 220 && oceanFeatures.length < reefTarget; attempt++) {
+    const gx = 8 + Math.floor(artRng() * (cols - 16));
+    const gy = 8 + Math.floor(artRng() * (rows - 16));
+    const idx = gy * cols + gx;
+    if (cells[idx] !== -1) continue;
+    const elev = elevation[idx];
+    if (elev < 64 || elev > 106) continue;
+    const px = gx * step;
+    const py = gy * step;
+    if (px < 115 && py > height - 115) continue; // Keep compass corner clean
+    if (isNearBridge(px, py)) continue;
+    if (oceanFeatures.some((f) => Math.hypot(f.x - px, f.y - py) < 58)) continue;
+    oceanFeatures.push({
+      kind: 'reef',
+      x: px,
+      y: py,
+      phase: artRng() * Math.PI * 2,
+      scale: 0.85 + artRng() * 0.45,
+      dir: artRng() > 0.5 ? 1 : -1,
+    });
+  }
+
+  // 7b. Craggy Pixel Sea Stacks / Rocky Islets
+  let rockCount = 0;
+  const rockTarget = preset === 'archipelago' ? 7 : 5;
+  for (let attempt = 0; attempt < 240 && rockCount < rockTarget; attempt++) {
+    const gx = 10 + Math.floor(artRng() * (cols - 20));
+    const gy = 10 + Math.floor(artRng() * (rows - 20));
+    const idx = gy * cols + gx;
+    if (cells[idx] !== -1) continue;
+    const elev = elevation[idx];
+    if (elev < 14 || elev > 76) continue;
+    const px = gx * step;
+    const py = gy * step;
+    if (px < 125 && py > height - 125) continue;
+    if (isNearBridge(px, py)) continue;
+    if (oceanFeatures.some((f) => Math.hypot(f.x - px, f.y - py) < 64)) continue;
+    oceanFeatures.push({
+      kind: 'sea_rock',
+      x: px,
+      y: py,
+      phase: artRng() * Math.PI * 2,
+      scale: 0.9 + artRng() * 0.35,
+      dir: artRng() > 0.5 ? 1 : -1,
+    });
+    rockCount++;
+  }
+
+  // 7c. Tiny Drifting Neutral Merchant Sailboats in Deep Ocean Lanes
+  let shipCount = 0;
+  for (let attempt = 0; attempt < 200 && shipCount < 3; attempt++) {
+    const gx = 14 + Math.floor(artRng() * (cols - 28));
+    const gy = 12 + Math.floor(artRng() * (rows - 24));
+    const idx = gy * cols + gx;
+    if (cells[idx] !== -1) continue;
+    if (elevation[idx] > 50) continue;
+    const px = gx * step;
+    const py = gy * step;
+    if (px < 140 && py > height - 135) continue;
+    if (isNearBridge(px, py)) continue;
+    if (oceanFeatures.some((f) => Math.hypot(f.x - px, f.y - py) < 95)) continue;
+    oceanFeatures.push({
+      kind: 'ship_ambient',
+      x: px,
+      y: py,
+      phase: artRng() * Math.PI * 2,
+      scale: 1.0,
+      dir: artRng() > 0.5 ? 1 : -1,
+    });
+    shipCount++;
+  }
+
+  // 7d. Deep Ocean Sea Creature Ripple (Whale Tail / Sea Serpent Fin)
+  let creatureCount = 0;
+  for (let attempt = 0; attempt < 180 && creatureCount < 2; attempt++) {
+    const gx = 14 + Math.floor(artRng() * (cols - 28));
+    const gy = 14 + Math.floor(artRng() * (rows - 28));
+    const idx = gy * cols + gx;
+    if (cells[idx] !== -1) continue;
+    if (elevation[idx] > 32) continue;
+    const px = gx * step;
+    const py = gy * step;
+    if (px < 140 && py > height - 140) continue;
+    if (isNearBridge(px, py)) continue;
+    if (oceanFeatures.some((f) => Math.hypot(f.x - px, f.y - py) < 105)) continue;
+    oceanFeatures.push({
+      kind: 'sea_creature',
+      x: px,
+      y: py,
+      phase: artRng() * Math.PI * 2,
+      scale: 1.0,
+      dir: artRng() > 0.5 ? 1 : -1,
+    });
+    creatureCount++;
+  }
+
+  // 8. Scatter Rich Pixel-Art Biome & Preset Landmarks Safely Away from Castles, Plaques & Rivers
   const props: MapGridData['props'] = [];
+
+  const isPropSpotSafe = (t: Territory, px: number, py: number, minPropSpacing = 21): boolean => {
+    const gx = Math.floor(px / step);
+    const gy = Math.floor(py / step);
+    if (gx < 3 || gy < 3 || gx >= cols - 3 || gy >= rows - 3) return false;
+
+    const cCenter = cells[gy * cols + gx];
+    if (
+      cCenter !== t.id ||
+      cells[gy * cols + (gx + 2)] !== t.id ||
+      cells[gy * cols + (gx - 2)] !== t.id ||
+      cells[(gy + 2) * cols + gx] !== t.id ||
+      cells[(gy - 2) * cols + gx] !== t.id
+    ) {
+      return false;
+    }
+
+    // Keep landmarks out of river channels
+    if (
+      riverMask[gy * cols + gx] > 0 ||
+      riverMask[gy * cols + (gx + 1)] > 0 ||
+      riverMask[gy * cols + (gx - 1)] > 0 ||
+      riverMask[(gy + 1) * cols + gx] > 0
+    ) {
+      return false;
+    }
+
+    // Clear of castle footprints & data plaques directly beneath castles
+    if (
+      territories.some(
+        (other) =>
+          Math.hypot(other.x - px, other.y - py) < 48 ||
+          (Math.abs(other.x - px) < 46 && py > other.y + 6 && py < other.y + 44)
+      )
+    ) {
+      return false;
+    }
+
+    if (props.some((pr) => Math.hypot(pr.x - px, pr.y - py) < minPropSpacing)) {
+      return false;
+    }
+
+    return true;
+  };
+
   for (const t of territories) {
+    // 8a. Signature Hero Landmark per Territory (Windmill / Ruin / Village / Oasis)
+    const heroKind: MapGridData['props'][number]['kind'] | null =
+      preset === 'middle_east' && (t.biome === 'fertile' || t.biome === 'plain') && artRng() > 0.35
+        ? artRng() > 0.45
+          ? 'oasis'
+          : 'ruin'
+        : t.biome === 'fertile'
+          ? 'windmill'
+          : t.biome === 'plain'
+            ? artRng() > 0.48
+              ? 'ruin'
+              : 'village'
+            : t.biome === 'forest' && artRng() > 0.65
+              ? 'village'
+              : null;
+
+    if (heroKind) {
+      for (let attempt = 0; attempt < 45; attempt++) {
+        const angle = artRng() * Math.PI * 2;
+        const dist = 48 + artRng() * 44;
+        const px = Math.round(t.x + Math.cos(angle) * dist);
+        const py = Math.round(t.y + Math.sin(angle) * dist);
+        if (!isPropSpotSafe(t, px, py, 26)) continue;
+        props.push({
+          kind: heroKind,
+          x: px,
+          y: py,
+          variant: Math.floor(artRng() * 3),
+          territoryId: t.id,
+        });
+        break;
+      }
+    }
+
+    // 8b. Organic Biome Flora, Mountain Ridges & Fields
     const targetProps =
       t.biome === 'forest'
-        ? 8
+        ? 9
         : t.biome === 'mountain'
-          ? 5
+          ? 6
           : t.biome === 'fertile'
-            ? 6
-            : 3;
+            ? 7
+            : 4;
 
     let placed = 0;
-    for (let attempt = 0; attempt < 90 && placed < targetProps; attempt++) {
+    for (let attempt = 0; attempt < 110 && placed < targetProps; attempt++) {
       const angle = rng() * Math.PI * 2;
-      const dist = 48 + rng() * 88;
+      const dist = 48 + rng() * 92;
       const px = Math.round(t.x + Math.cos(angle) * dist);
       const py = Math.round(t.y + Math.sin(angle) * dist);
+      if (!isPropSpotSafe(t, px, py, 20)) continue;
 
-      const gx = Math.floor(px / step);
-      const gy = Math.floor(py / step);
-      if (gx < 3 || gy < 3 || gx >= cols - 3 || gy >= rows - 3) continue;
-
-      const cCenter = cells[gy * cols + gx];
-      if (
-        cCenter !== t.id ||
-        cells[gy * cols + (gx + 2)] !== t.id ||
-        cells[gy * cols + (gx - 2)] !== t.id ||
-        cells[(gy + 2) * cols + gx] !== t.id ||
-        cells[(gy - 2) * cols + gx] !== t.id
-      ) {
-        continue;
-      }
-
-      if (territories.some((other) => Math.hypot(other.x - px, other.y - py) < 52)) {
-        continue;
-      }
-
-      if (props.some((pr) => Math.hypot(pr.x - px, pr.y - py) < 22)) {
-        continue;
-      }
-
-      const kind =
-        t.biome === 'mountain'
-          ? 'mountain'
-          : t.biome === 'forest'
-            ? rng() > 0.45
-              ? 'pine'
-              : 'tree'
-            : t.biome === 'fertile'
-              ? 'wheat'
-              : rng() > 0.5
-                ? 'tree'
+      let kind: MapGridData['props'][number]['kind'];
+      if (t.biome === 'mountain') {
+        kind = 'mountain';
+      } else if (preset === 'middle_east') {
+        if (t.biome === 'fertile') {
+          kind = artRng() > 0.55 ? 'palm' : 'wheat';
+        } else if (t.biome === 'forest') {
+          kind = artRng() > 0.45 ? 'cypress' : 'palm';
+        } else {
+          kind = artRng() > 0.45 ? 'palm' : 'cypress';
+        }
+      } else if (t.biome === 'forest') {
+        const r = artRng();
+        kind = r > 0.62 ? 'pine' : r > 0.25 ? 'tree' : 'cypress';
+      } else if (t.biome === 'fertile') {
+        kind = artRng() > 0.22 ? 'wheat' : 'cypress';
+      } else {
+        const r = artRng();
+        kind =
+          preset === 'archipelago' && t.isCoastal && r > 0.55
+            ? 'palm'
+            : r > 0.6
+              ? 'tree'
+              : r > 0.3
+                ? 'cypress'
                 : 'wheat';
+      }
 
       props.push({
         kind,
@@ -685,6 +1081,10 @@ export function generateOrganicMap(
       rows,
       cells,
       elevation,
+      riverMask,
+      riverSparkles,
+      coastSurf,
+      oceanFeatures,
       props,
       seed,
       preset,

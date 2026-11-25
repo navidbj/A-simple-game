@@ -1,4 +1,6 @@
 import type { GameOutcome, GamePhase, MatchStats } from '../game/types';
+import type { TimelapseData } from '../hooks/useGameController';
+import { TimelapseCanvas } from './TimelapseCanvas';
 
 interface StatusModalProps {
   phase: GamePhase;
@@ -6,6 +8,7 @@ interface StatusModalProps {
   stats: MatchStats;
   playerTerritories: number;
   totalTerritories: number;
+  timelapse?: TimelapseData | null;
   onResume: () => void;
   onRestartNewMap: () => void;
   onReturnTitle: () => void;
@@ -24,6 +27,7 @@ export function StatusModal({
   stats,
   playerTerritories,
   totalTerritories,
+  timelapse,
   onResume,
   onRestartNewMap,
   onReturnTitle,
@@ -54,7 +58,7 @@ export function StatusModal({
       aria-labelledby="status-modal-title"
       className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[#070d17]/80"
     >
-      <div className="w-full max-w-md bg-[#111a2b] border-2 border-[#d6b472]/40 p-6 shadow-[0_24px_70px_rgba(0,0,0,0.8)] text-center">
+      <div className="w-full max-w-md max-h-[92dvh] overflow-y-auto bg-[#111a2b] border-2 border-[#d6b472]/40 p-5 sm:p-6 shadow-[0_24px_70px_rgba(0,0,0,0.8)] text-center">
         <h2
           id="status-modal-title"
           className={`text-2xl font-black ${
@@ -71,28 +75,37 @@ export function StatusModal({
         <p className="mt-2 text-sm text-[#a3b1c6] leading-relaxed">{subtitle}</p>
 
         {/* Tabular-nums Match Stats */}
-        <div className="mt-5 grid grid-cols-3 gap-2.5">
-          <div className="bg-[#162236] border-2 border-[#25354f] py-3 px-2">
+        <div className="mt-4 grid grid-cols-3 gap-2.5">
+          <div className="bg-[#162236] border-2 border-[#25354f] py-2.5 px-2">
             <div className="text-[11px] text-[#94a3b8]">مدت نبرد</div>
             <div className="mt-1 font-num text-lg font-bold text-[#f6efe0]">
               {formatDuration(stats.elapsedSeconds)}
             </div>
           </div>
 
-          <div className="bg-[#162236] border-2 border-[#25354f] py-3 px-2">
+          <div className="bg-[#162236] border-2 border-[#25354f] py-2.5 px-2">
             <div className="text-[11px] text-[#94a3b8]">قلعه‌های شما</div>
             <div className="mt-1 font-num text-lg font-bold text-[#f6efe0]">
               {playerTerritories}/{totalTerritories}
             </div>
           </div>
 
-          <div className="bg-[#162236] border-2 border-[#25354f] py-3 px-2">
+          <div className="bg-[#162236] border-2 border-[#25354f] py-2.5 px-2">
             <div className="text-[11px] text-[#94a3b8]">ساختمان‌ها</div>
             <div className="mt-1 font-num text-lg font-bold text-[#d6b472]">
               {stats.buildingsConstructed}
             </div>
           </div>
         </div>
+
+        {/* Endgame Conquest Timelapse Player */}
+        {phase === 'gameover' && timelapse && (
+          <TimelapseCanvas
+            map={timelapse.map}
+            territories={timelapse.territories}
+            snapshots={timelapse.snapshots}
+          />
+        )}
 
         {/* Actions */}
         <div className="mt-6 flex flex-col gap-2.5">

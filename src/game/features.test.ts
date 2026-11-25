@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { appendBattleLog, buildBattleLogEntries, formatBattleTime } from './battleLog';
-import { ECONOMY } from './constants';
+import { BUILDINGS, ECONOMY } from './constants';
 import {
   buildStructure,
   canBuildStructure,
@@ -11,6 +11,10 @@ import {
   computeNavalRoute,
   createInitialMatch,
   dispatchTroops,
+  getBuildingLevel,
+  getNextBuildingCost,
+  getTerritoryRates,
+  previewAttackOutcome,
   recordTimelapseSnapshot,
   setSupplyRoute,
   stepSimulation,
@@ -308,4 +312,177 @@ test('Port requires coastal castle and unlocks cross-sea Naval Raids with over-w
     'Capture event should carry isNaval flag'
   );
 });
+
+test('Upgraded cartographic map generates rivers, surf, ocean life on water, and rich landmarks across all presets', () => {
+  const presets: MapPreset[] = ['continent', 'archipelago', 'strait', 'middle_east'];
+
+  for (const preset of presets) {
+    const sim = createInitialMatch(55123, 'normal', preset);
+    const { map } = sim;
+
+    // Coastal surf anchors should outline the shoreline cleanly
+    assert.ok(map.coastSurf.length >= 25, `${preset} should generate animated coastSurf points`);
+
+    // Ocean features (reefs, sea stacks, dhows, sea life) must sit strictly on open water
+    assert.ok(map.oceanFeatures.length >= 6, `${preset} should populate oceanFeatures`);
+    for (const feat of map.oceanFeatures) {
+      const gx = Math.floor(feat.x / map.step);
+      const gy = Math.floor(feat.y / map.step);
+      assert.equal(
+        map.cells[gy * map.cols + gx],
+        -1,
+        `${preset} ocean feature ${feat.kind} must spawn strictly on open ocean`
+      );
+    }
+
+    // Rivers on continent/strait/middle_east should carve valid land cells with sparkles
+    let riverCells = 0;
+    for (let i = 0; i < map.riverMask.length; i++) {
+      if (map.riverMask[i] > 0) {
+        assert.ok(map.cells[i] >= 0, `${preset} river cell must stay on land`);
+        riverCells++;
+      }
+    }
+    if (preset !== 'archipelago') {
+      assert.ok(riverCells >= 20, `${preset} should carve procedural river channels`);
+      assert.ok(map.riverSparkles.length >= 3, `${preset} should generate river sparkle points`);
+    }
+
+    // Rich landmarks (windmills, ruins, villages, cypress, palms, oases) should appear and stay off rivers
+    const kinds = new Set(map.props.map((p) => p.kind));
+    assert.ok(kinds.size >= 4, `${preset} should scatter diverse biome landmarks`);
+    if (preset === 'middle_east') {
+      assert.ok(kinds.has('palm'), 'middle_east preset should feature palm trees');
+    } else {
+      assert.ok(
+        kinds.has('windmill') || kinds.has('ruin') || kinds.has('village'),
+        `${preset} should include signature hero landmarks`
+      );
+    }
+    for (const prop of map.props) {
+      const gx = Math.floor(prop.x / map.step);
+      const gy = Math.floor(prop.y / map.step);
+      assert.equal(map.riverMask[gy * map.cols + gx], 0, 'Landmarks must not overlap river channels');
+    }
+  }
+});
+
+test('All 5 buildings upgrade cleanly across Lv.1 -> Lv.2 -> Lv.3 with scaling stats, Battle Log entries, and conquest reset', () => {
+  const sim = createInitialMatch(24681, 'normal', 'archipelago');
+  const home = sim.territories.find((t) => t.isCoastal)!;
+  home.owner = 0;
+  home.military = 1000;
+
+  const neighbor = sim.territories[home.neighbors[0]];
+  neighbor.owner = 1;
+  neighbor.military = 100;
+  neighbor.biome = 'plain';
+
+  // 1. Mine Lv.0 -> Lv.1 -> Lv.2 -> Lv.3 increases maxManpower & manpowerRate monotonically
+  const r0 = getTerritoryRates(home);
+  assert.equal(getBuildingLevel(home, 'mine'), 0);
+  assert.equal(getNextBuildingCost(home, 'mine'), BUILDINGS.mine.levelCosts[0]);
+
+  const events: SimEvent[] = [];
+  assert.equal(buildStructure(sim, home.id, 'mine', 0, events), true);
+  const r1 = getTerritoryRates(home);
+  assert.equal(getBuildingLevel(home, 'mine'), 1);
+  assert.ok(r1.maxManpower > r0.maxManpower && r1.manpowerRate > r0.manpowerRate);
+
+  assert.equal(buildStructure(sim, home.id, 'mine', 0, events), true);
+  const r2 = getTerritoryRates(home);
+  assert.equal(getBuildingLevel(home, 'mine'), 2);
+  assert.ok(r2.maxManpower > r1.maxManpower && r2.manpowerRate > r1.manpowerRate);
+
+  assert.equal(buildStructure(sim, home.id, 'mine', 0, events), true);
+  const r3 = getTerritoryRates(home);
+  assert.equal(getBuildingLevel(home, 'mine'), 3);
+  assert.equal(r3.maxManpower, ECONOMY.MINE_MAX_MANPOWER_LEVELS[3]);
+  assert.ok(r3.manpowerRate > r2.manpowerRate);
+
+  // Max level cap prevents Lv.4
+  assert.equal(getNextBuildingCost(home, 'mine'), null);
+  assert.equal(canBuildStructure(home, 'mine'), false);
+  assert.equal(buildStructure(sim, home.id, 'mine', 0, events), false);
+
+  // Battle Log formats Lv.2 & Lv.3 tier names
+  const log = buildBattleLogEntries(events, 45, { current: 1 });
+  assert.equal(log.length, 3);
+  assert.ok(log[1].text.includes('سطح ۲'));
+  assert.ok(log[2].text.includes('حداکثر سطح ۳'));
+
+  // 2. Barracks Lv.1 -> Lv.3 increases net military conversion rate monotonically
+  const b0 = getTerritoryRates(home).netMilitaryPerSec;
+  buildStructure(sim, home.id, 'barracks', 0);
+  const b1 = getTerritoryRates(home).netMilitaryPerSec;
+  buildStructure(sim, home.id, 'barracks', 0);
+  const b2 = getTerritoryRates(home).netMilitaryPerSec;
+  buildStructure(sim, home.id, 'barracks', 0);
+  const b3 = getTerritoryRates(home).netMilitaryPerSec;
+  assert.ok(b0 < b1 && b1 < b2 && b2 < b3);
+
+  // 3. Forge Lv.1 -> Lv.3 increases attackMultiplier monotonically
+  const p0 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!;
+  buildStructure(sim, home.id, 'forge', 0);
+  const p1 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!;
+  buildStructure(sim, home.id, 'forge', 0);
+  const p2 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!;
+  buildStructure(sim, home.id, 'forge', 0);
+  const p3 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!;
+  assert.ok(
+    p0.effectiveAttack / p0.sendAmount < p1.effectiveAttack / p1.sendAmount &&
+      p1.effectiveAttack / p1.sendAmount < p2.effectiveAttack / p2.sendAmount &&
+      p2.effectiveAttack / p2.sendAmount < p3.effectiveAttack / p3.sendAmount
+  );
+
+  // 4. Tower Lv.1 -> Lv.3 increases defense bonus percentage monotonically
+  neighbor.military = 300;
+  buildStructure(sim, neighbor.id, 'tower', 1);
+  const d1 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!.defenseBonusPct;
+  buildStructure(sim, neighbor.id, 'tower', 1);
+  const d2 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!.defenseBonusPct;
+  buildStructure(sim, neighbor.id, 'tower', 1);
+  const d3 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!.defenseBonusPct;
+  assert.ok(d1 < d2 && d2 < d3 && d3 >= 60);
+
+  // 5. Port Lv.1 -> Lv.3 boosts naval warship speed and Lv.3 naval attack multiplier
+  const navalTarget = sim.territories.find(
+    (t) => t.id !== home.id && t.isCoastal && !home.neighbors.includes(t.id)
+  )!;
+  navalTarget.owner = 2;
+  navalTarget.military = 10;
+
+  buildStructure(sim, home.id, 'port', 0);
+  dispatchTroops(sim, home.id, navalTarget.id, 0.1, 0);
+  const ship1 = sim.troops[sim.troops.length - 1];
+  buildStructure(sim, home.id, 'port', 0);
+  dispatchTroops(sim, home.id, navalTarget.id, 0.1, 0);
+  const ship2 = sim.troops[sim.troops.length - 1];
+  buildStructure(sim, home.id, 'port', 0);
+  dispatchTroops(sim, home.id, navalTarget.id, 0.1, 0);
+  const ship3 = sim.troops[sim.troops.length - 1];
+  assert.ok(ship1.speed < ship2.speed && ship2.speed < ship3.speed);
+  assert.ok(ship3.attackMultiplier > ship2.attackMultiplier);
+
+  // 6. Enemy conquest resets ALL buildingLevels back to 0
+  sim.troops = [];
+  home.military = 1;
+  neighbor.military = 400;
+  dispatchTroops(sim, neighbor.id, home.id, 0.75, 1);
+  for (let i = 0; i < 200; i++) {
+    stepSimulation(sim, 0.05, false, 1.0);
+    if (sim.territories[home.id].owner === 1) break;
+  }
+  assert.equal(sim.territories[home.id].owner, 1);
+  assert.equal(getBuildingLevel(home, 'barracks'), 0);
+  assert.equal(getBuildingLevel(home, 'mine'), 0);
+  assert.equal(getBuildingLevel(home, 'forge'), 0);
+  assert.equal(getBuildingLevel(home, 'port'), 0);
+  assert.equal(home.hasBarracks, false);
+  assert.equal(home.hasMine, false);
+  assert.equal(home.hasForge, false);
+  assert.equal(home.hasPort, false);
+});
+
+
 

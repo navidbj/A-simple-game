@@ -3,18 +3,21 @@ import {
   BUILDINGS,
   COMMANDER_POWERS,
   FACTIONS,
+  MAX_BUILDING_LEVEL,
   NEUTRAL_STYLE,
 } from '../game/constants';
-import { isBuildingBuilt } from '../game/simulation';
+import { getBuildingLevel, getNextBuildingCost } from '../game/simulation';
 import type { BuildingType, HudSnapshot, PowerType } from '../game/types';
-import { BuildingIcon, PowerIcon, RallyIcon } from './GameIcons';
+import { BuildingIcon, PowerIcon, RallyIcon, SupplyLineIcon } from './GameIcons';
 
 interface MobileCommandBarProps {
   hud: HudSnapshot;
+  supplyMode: boolean;
   onCycleSendRatio: () => void;
   onBuild: (type: BuildingType) => void;
   onTriggerPower: (power: PowerType) => void;
   onRally: () => void;
+  onToggleSupply: () => void;
 }
 
 const BUILDING_ITEMS: Array<{ type: BuildingType; shortLabel: string }> = [
@@ -22,6 +25,7 @@ const BUILDING_ITEMS: Array<{ type: BuildingType; shortLabel: string }> = [
   { type: 'tower', shortLabel: 'برج' },
   { type: 'mine', shortLabel: 'معدن' },
   { type: 'forge', shortLabel: 'آهنگری' },
+  { type: 'port', shortLabel: 'بندر' },
 ];
 
 const POWER_ITEMS: Array<{ type: PowerType; shortLabel: string }> = [
@@ -32,10 +36,12 @@ const POWER_ITEMS: Array<{ type: PowerType; shortLabel: string }> = [
 
 export function MobileCommandBar({
   hud,
+  supplyMode,
   onCycleSendRatio,
   onBuild,
   onTriggerPower,
   onRally,
+  onToggleSupply,
 }: MobileCommandBarProps) {
   const sel = hud.selectedTerritory;
   const isPlayerOwned = sel !== null && sel.owner === 0;
@@ -121,15 +127,43 @@ export function MobileCommandBar({
           </span>
         </button>
 
+        {/* 3b. Auto-Supply Route Button */}
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={!isPlayerOwned || ((sel?.friendlyNeighborCount ?? 0) === 0 && sel?.supplyTargetId === null)}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            onToggleSupply();
+          }}
+          aria-label="خط تأمین خودکار نیرو"
+          className={`min-w-[52px] min-h-[46px] shrink-0 px-2 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
+            sel?.supplyTargetId !== null || supplyMode
+              ? 'bg-[#12302a] border-[#34d399] text-[#6ee7b7] cursor-pointer'
+              : isPlayerOwned && (sel?.friendlyNeighborCount ?? 0) > 0
+                ? 'bg-[#162236] active:bg-[#223452] border-[#385073] text-[#cbd5e1] cursor-pointer'
+                : 'bg-[#101827] border-[#1f2c40] text-[#475569] cursor-not-allowed'
+          }`}
+        >
+          <SupplyLineIcon className="w-4 h-4 shrink-0" />
+          <span className="text-[9px] font-extrabold leading-tight mt-0.5 whitespace-nowrap">
+            تأمین
+          </span>
+        </button>
+
         <span className="h-8 w-px bg-[#25354f] shrink-0" aria-hidden="true" />
 
-        {/* 4. All 4 Buildings — 1-Tap Access without Drawer */}
+        {/* 4. All 5 Upgradeable Buildings (Lv.1 -> Lv.2 -> Lv.3) — 1-Tap Access without Drawer */}
         <div className="flex items-center gap-1 shrink-0">
           {BUILDING_ITEMS.map(({ type, shortLabel }) => {
             const cfg = BUILDINGS[type];
-            const alreadyBuilt = sel !== null && isBuildingBuilt(sel, type);
-            const canAfford = isPlayerOwned && sel !== null && sel.military >= cfg.cost;
-            const disabled = !isPlayerOwned || alreadyBuilt || !canAfford;
+            const level = sel !== null ? getBuildingLevel(sel, type) : 0;
+            const isMaxed = level >= MAX_BUILDING_LEVEL;
+            const nextCost = sel !== null ? getNextBuildingCost(sel, type) : cfg.levelCosts[0];
+            const needsCoast = type === 'port' && sel !== null && !sel.isCoastal;
+            const canAfford =
+              isPlayerOwned && sel !== null && nextCost !== null && sel.military >= nextCost;
+            const disabled = !isPlayerOwned || isMaxed || needsCoast || !canAfford;
 
             return (
               <button
@@ -137,28 +171,48 @@ export function MobileCommandBar({
                 type="button"
                 tabIndex={-1}
                 disabled={disabled}
-                aria-label={`${cfg.name}، هزینه ${cfg.cost} نظامی`}
+                aria-label={`${cfg.name} سطح ${level}، ${isMaxed ? 'حداکثر سطح' : `هزینه ارتقا ${nextCost} نظامی`}`}
                 onClick={(e) => {
                   e.currentTarget.blur();
                   onBuild(type);
                 }}
-                className={`min-w-[56px] min-h-[46px] px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
-                  alreadyBuilt
-                    ? 'bg-[#152823] border-[#28634d] text-[#86efac]'
+                className={`min-w-[58px] min-h-[46px] px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
+                  isMaxed
+                    ? 'bg-[#261f11] border-[#ca8a04] text-[#fef08a]'
                     : !disabled
-                      ? 'bg-[#162236] active:bg-[#223452] border-[#385073] text-[#f6efe0] cursor-pointer'
-                      : 'bg-[#111929] border-[#1e2a3d] text-[#64748b] cursor-not-allowed'
+                      ? level > 0
+                        ? 'bg-[#152823] active:bg-[#1d3830] border-[#2f7a5f] text-[#f6efe0] cursor-pointer'
+                        : 'bg-[#162236] active:bg-[#223452] border-[#385073] text-[#f6efe0] cursor-pointer'
+                      : level > 0
+                        ? 'bg-[#132220] border-[#21453a] text-[#86b8a2] cursor-not-allowed'
+                        : 'bg-[#111929] border-[#1e2a3d] text-[#64748b] cursor-not-allowed'
                 }`}
               >
                 <div className="flex items-center gap-1">
                   <BuildingIcon type={type} className="w-4 h-4 shrink-0" />
                   <span className="font-num text-[10px] font-bold">
-                    {alreadyBuilt ? '✓' : cfg.cost}
+                    {isMaxed ? '★' : nextCost}
                   </span>
                 </div>
-                <span className="text-[9px] font-bold leading-tight mt-0.5 whitespace-nowrap">
-                  {shortLabel}
-                </span>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-[9px] font-bold leading-tight whitespace-nowrap">
+                    {shortLabel}
+                  </span>
+                  <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+                    {[1, 2, 3].map((pip) => (
+                      <span
+                        key={pip}
+                        className={`inline-block w-1 h-1 ${
+                          pip <= level
+                            ? isMaxed
+                              ? 'bg-[#fde047]'
+                              : 'bg-[#4ade80]'
+                            : 'bg-[#2a3b55]'
+                        }`}
+                      />
+                    ))}
+                  </span>
+                </div>
               </button>
             );
           })}

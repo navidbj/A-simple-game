@@ -141,6 +141,7 @@ test('Stacked Tower + Royal Shield + Mountain defense applies accurate conquest 
   assert.equal(res.sent, 100);
 
   for (let i = 0; i < 160 && sim.troops.length > 0; i++) {
+    target.manpower = 0;
     stepSimulation(sim, 0.05, false);
   }
   assert.equal(target.owner, 0);

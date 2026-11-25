@@ -62,6 +62,65 @@ const CASTLE_GRID_FLASH = CASTLE_GRID.map((r) =>
   r.replace(/[SLDMG]/g, 'W')
 );
 
+// 1b. Compact 18x18 Outpost Keep (for small/neutral garrisons)
+const CASTLE_SMALL_GRID = [
+  '........K.........',
+  '.......KRR........',
+  '.......KRRR.......',
+  '.......K..........',
+  '......KMK.........',
+  '.....KMRMK........',
+  '....KMMMMMK.......',
+  '...KLLLLLLLK......',
+  '...KLSSKSSLK......',
+  '..KKSSSSSSSKK.....',
+  '..KSDSSSDSKSK.....',
+  '..KSSKGGGKSSK.....',
+  '..KSSKGDGKSSK.....',
+  '..KSSKGDGKSSK.....',
+  '..KDDKGGGKDDK.....',
+  '..KKKKKKKKKKK.....',
+  '..................',
+  '..................',
+];
+
+const CASTLE_SMALL_FLASH = CASTLE_SMALL_GRID.map((r) =>
+  r.replace(/[SLDMG]/g, 'W')
+);
+
+// 1c. Majestic 26x25 Grand Imperial Citadel (for powerful fortified strongholds)
+const CASTLE_GRAND_GRID = [
+  '............K.............',
+  '...........KRR............',
+  '...........KRRR...........',
+  '...........KRR............',
+  '...........K..............',
+  '..........KAK.............',
+  '....K....KAMAK....K.......',
+  '...KRR..KAMRMAK..KRR......',
+  '...K...KAMRRRMAK...K......',
+  '..KAK.KAAAAAAAAAK.KAK.....',
+  '.KMRMK.KLLLLLLLK.KMRMK....',
+  'KMRRRMKKLSSKSSLKKMRRRMK...',
+  'KSSSSSKKSSSSSSSKKSSSSSK...',
+  'KSDSKSKSDSSASDSKSKSDSKK...',
+  'KSSSKKLKKKKKKKKKLKKSSSK...',
+  'KSSSKSSKLLALLLKSSKSSSK....',
+  'KSDSKSSKLGGGGGKSSKSDSK....',
+  'KSSSKSSKGGDDGGKSSKSSSK....',
+  'KSSSKSSKGGAYGGKSSKSSSK....',
+  'KSSSKSSKGGDDGGKSSKSSSK....',
+  'KSSSKSSKGGDDGGKSSKSSSK....',
+  'KDDDKDDKGGGGGGKDDKDDDK....',
+  'KKKKKKKKKKKKKKKKKKKKKK....',
+  '..........................',
+  '..........................',
+];
+
+const CASTLE_GRAND_FLASH = CASTLE_GRAND_GRID.map((r) =>
+  r.replace(/[SLDMGAY]/g, 'W')
+);
+
 // 2. Animated 12x14 Pixel-Art Soldier (Footman / Knight) — 2 Walk Frames
 const SOLDIER_FRAME_A = [
   '....KKK.....',
@@ -132,8 +191,10 @@ const ELITE_FRAME_B = [
   '..............',
 ];
 
-// 4. Pixel-Art Constructed Building Annex Sprites
-const BARRACKS_GRID = [
+// 4. Pixel-Art Constructed Building Annex Sprites — 3 Distinct Clash-of-Clans Visual Tiers (Lv.1 -> Lv.2 -> Lv.3)
+
+// 4a. BARRACKS: Lv.1 Canvas Tent (14x10) -> Lv.2 Fortified Stone Garrison (16x13) -> Lv.3 Gilded Royal War Academy (18x16)
+const BARRACKS_LV1_GRID = [
   '......K.......',
   '.....KRR......',
   '.....K........',
@@ -146,7 +207,43 @@ const BARRACKS_GRID = [
   '.KKKKKKKKKK...',
 ];
 
-const TOWER_GRID = [
+const BARRACKS_LV2_GRID = [
+  '.......K........',
+  '......KRRK......',
+  '......KRR.......',
+  '......K.........',
+  '..K..KMK..K.....',
+  '.KMKMRRRMKMK....',
+  '.KLLRRRRRLLK....',
+  '.KLSKMMMKSLK....',
+  '.KSSKRRRKSSK....',
+  '.KSSKDDDKSSK....',
+  '.KDSKDDDKSDK....',
+  '.KDDKDDDKDDK....',
+  '.KKKKKKKKKKK....',
+];
+
+const BARRACKS_LV3_GRID = [
+  '........K.........',
+  '.......KRRK.......',
+  '.......KRR........',
+  '..K....K....K.....',
+  '.KGY..KGY..KGY....',
+  '.KAK.KGGGK.KAK....',
+  'KGRGKGMRMGKGRGK...',
+  'KLLGGRRRRRGGLLK...',
+  'KLSKGGMMMGKKSLK...',
+  'KSSKGRGYGRKKSSK...',
+  'KSSKGDDDDGKKSSK...',
+  'KDSKGDDYDGKKSDK...',
+  'KSSKGDDDDGKKSSK...',
+  'KDDKGGGGGGKKDDK...',
+  'KKKKKKKKKKKKKKK...',
+  '..................',
+];
+
+// 4b. DEFENSE TOWER: Lv.1 Stone Watchtower (10x12) -> Lv.2 Iron Crystal Bastion (12x16) -> Lv.3 Obsidian & Gold Arcane Spire (14x19)
+const TOWER_LV1_GRID = [
   '.K.K.K.K..',
   '.KKKKKKK..',
   '.KLLLLLK..',
@@ -161,7 +258,49 @@ const TOWER_GRID = [
   '.KKKKKKK..',
 ];
 
-const MINE_GRID = [
+const TOWER_LV2_GRID = [
+  '.....KK.....',
+  '....KCCK....',
+  '....KBCK....',
+  '.K.KKKKKK.K.',
+  '.KKIIIIIIKK.',
+  '.KLLLLLLLLK.',
+  '..KISBBISK..',
+  '..KISCCISK..',
+  '..KISBBISK..',
+  '..KIDSSDIK..',
+  '..KISSSSIK..',
+  '..KIDDDDIK..',
+  '.KKISSSSIKK.',
+  '.KIIIDDDIIK.',
+  '.KDDDDDDDDK.',
+  '.KKKKKKKKKK.',
+];
+
+const TOWER_LV3_GRID = [
+  '......KK......',
+  '.....KYYK.....',
+  '....KYCCYK....',
+  '....KCCBCK....',
+  '.....KBBK.....',
+  '.K..KKGGKK..K.',
+  'KGGKGLLLLGKGGK',
+  '.KKGIICCIIGKK.',
+  '..KGICBBCIGK..',
+  '..KGIICCIIGK..',
+  '..KGIDBBDIGK..',
+  '..KGGIIIIIGK..',
+  '..KGICBBCIGK..',
+  '..KGIIDDIIGK..',
+  '.KKGGIIIIGGKK.',
+  '.KGIIIGGGIIIGK',
+  '.KIDDDGGGDDDIK',
+  '.KGGGGGGGGGGGK',
+  '.KKKKKKKKKKKKK',
+];
+
+// 4c. MINE & MARKET: Lv.1 Wooden Tunnel (12x8) -> Lv.2 Stone Quarry & Gold Carts (15x11) -> Lv.3 Golden-Domed Royal Treasury (16x13)
+const MINE_LV1_GRID = [
   '....KKKK....',
   '..KKBBBBKK..',
   '.KBBGGGGbbK.',
@@ -172,7 +311,38 @@ const MINE_GRID = [
   '.KKKKKKKKKK.',
 ];
 
-const FORGE_GRID = [
+const MINE_LV2_GRID = [
+  '.....KKKKK.....',
+  '...KKLLLLLKK...',
+  '..KLLSSSSSLLK..',
+  '.KLSSGGGGSSSLK.',
+  '.KLSKKKKKKKKSLK',
+  '.KLSKDDGGDDKSLK',
+  '.KDSKDGGYGDKSDK',
+  '.KDDKDDGGDDKDDK',
+  'KBBKKKKKKKKKKBK',
+  'KGGYDDDDDDYGGGK',
+  'KKKKKKKKKKKKKKK',
+];
+
+const MINE_LV3_GRID = [
+  '......KKKK......',
+  '....KKYYYYKK....',
+  '...KYYGGGGYYK...',
+  '..KYGGYYYYGGYK..',
+  '.KKGGGGGGGGGGKK.',
+  '.KLLGGRRRRGGLLK.',
+  '.KLSKGGGGGGKSLK.',
+  '.KLSKGYYYYGKSLK.',
+  '.KLSKGYGGYGKSLK.',
+  '.KDSKGYYYYGKSDK.',
+  'KKGGKGGGGGGKGGKK',
+  'KYYYYGGGGGGYYYYK',
+  'KKKKKKKKKKKKKKKK',
+];
+
+// 4d. WAR FORGE: Lv.1 Brick Smithy (12x9) -> Lv.2 Twin-Chimney Steel Foundry (15x12) -> Lv.3 Volcanic Gold Dragon-Forge (16x15)
+const FORGE_LV1_GRID = [
   '........KK..',
   '.......KCCK.',
   '..KKKK.KSSK.',
@@ -184,7 +354,41 @@ const FORGE_GRID = [
   '.KKKKKKKKKK.',
 ];
 
-const PORT_GRID = [
+const FORGE_LV2_GRID = [
+  '..KK.......KK..',
+  '.KCCK.....KCCK.',
+  '.KSSK.KKK.KSSK.',
+  '.KSSKKIIIKKSSK.',
+  '.KSSKIIIIKKSSK.',
+  'KIIIIMMMMMIIIIK',
+  'KIDDDKKKKKDDDIK',
+  'KIDDKOOOOOKDDIK',
+  'KIDDKOYYOOKDDIK',
+  'KIDDKOYYOOKSIIK',
+  'KDDDDKKKKKDDDDK',
+  'KKKKKKKKKKKKKKK',
+];
+
+const FORGE_LV3_GRID = [
+  '.KK....KK....KK.',
+  'KGGK..KOOY..KGGK',
+  '.KIK.KOOOOYK.KIK',
+  '.KIK.KGGGGGKKIK.',
+  '.KIGKIIOOIIKGIK.',
+  'KGGIIIIGGIIIIGGK',
+  'KIIGGMMMMMMGGIIK',
+  'KIGGKKKKKKKKGGIK',
+  'KIDKOOYYYYOOKDIK',
+  'KIDKOYYWWYYOKDIK',
+  'KIDKOYYYYYYOKDIK',
+  'KIGKOOOOOOOOOKGK',
+  'KGGKKKKKKKKKKGGK',
+  'KDDGGGGGGGGGGDDK',
+  'KKKKKKKKKKKKKKKK',
+];
+
+// 4e. PORT: Lv.1 Wooden Pier (14x11) -> Lv.2 Stone Harbor & Crane (16x13) -> Lv.3 Grand Gilded Royal Harbor (18x15)
+const PORT_LV1_GRID = [
   '..KK..........',
   '.KYYK.........',
   '.KWWK....K....',
@@ -196,6 +400,40 @@ const PORT_GRID = [
   'KDBDBDBDBDBDK.',
   '.K.K..K..K.K..',
   '.K.K..K..K.K..',
+];
+
+const PORT_LV2_GRID = [
+  '..KK............',
+  '.KYYK......KK...',
+  '.KWWK.....KBBK..',
+  '.KRRK....KB..K..',
+  '.KWWK...KB..KPK.',
+  '.KRRK...KB..KPPK',
+  '.KWWK...KB..KPK.',
+  'KLLLLKKKBBKKKKK.',
+  'KSSSSSSSSSSSSSSK',
+  'KSDSSSDSSSDSSSDK',
+  'KDDDDDDDDDDDDDDK',
+  '.KK..KK..KK..KK.',
+  '.KK..KK..KK..KK.',
+];
+
+const PORT_LV3_GRID = [
+  '...KK.............',
+  '..KGYK.......K....',
+  '.KGYYGK.....KRR...',
+  '..KWWK..K...K.....',
+  '..KRRK.KRR..KGGK..',
+  '..KWWK.K...KGRRGK.',
+  '..KRRK.K...KGGGGK.',
+  '.KGWWGKKGGKKLLLLK.',
+  'KGGGGGGGGGGGGGGGGK',
+  'KLLSSGLLSSGLLSSLLK',
+  'KSSSSGSSSSGSSSSSSK',
+  'KDDDDGDDDDGDDDDDDK',
+  'KKKKKKKKKKKKKKKKKK',
+  '.KG..KG..KG..KG...',
+  '.KK..KK..KK..KK...',
 ];
 
 // 4b. Animated 16x14 16-Bit Pixel-Art Medieval Warship (2 Wave / Sail Frames)
@@ -312,11 +550,162 @@ const WHEAT_GRID = [
   '.D.DD.DD.',
 ];
 
+// 5b. Tall Stately Persian Cypress Tree (سرو)
+const CYPRESS_GRID = [
+  '...K...',
+  '..KLK..',
+  '..KGLK.',
+  '.KLLGK.',
+  '.KLGGK.',
+  '.KLGGDK',
+  '.KGGDDK',
+  '.KGGDDK',
+  '..KGDDK',
+  '..KDDK.',
+  '...KBK.',
+  '...KBK.',
+  '..KKKK.',
+  '.......',
+];
+
+// 5c. Graceful Date Palm Tree (for Middle East & tropical shores)
+const PALM_GRID = [
+  '...KK..KK...',
+  '.KKLLKKLLKK.',
+  'KLLGGKKGGLLK',
+  '.KK.KYYK.KK.',
+  '...KKBBKK...',
+  '..K..KBK..K.',
+  '.....KDK....',
+  '....KBK.....',
+  '....KDK.....',
+  '...KBK......',
+  '...KDK......',
+  '..KKKKK.....',
+  '............',
+];
+
+// 5d. Spinning Fertile Plain Windmill (Static Tower + 2-Frame Sails)
+const WINDMILL_BASE_GRID = [
+  '...KKKK...',
+  '..KRRRRK..',
+  '.KRRRRRRK.',
+  '..KLLLLK..',
+  '..KLSSLK..',
+  '..KSSSSK..',
+  '..KSDDSK..',
+  '.KKSSSSKK.',
+  '.KSSGGSSK.',
+  '.KDDGGDDK.',
+  '.KKKKKKKK.',
+  '..........',
+];
+
+const WINDMILL_SAIL_A = [
+  '....KKK....',
+  '....KWK....',
+  '....KWK....',
+  '....KBK....',
+  'KKKKKBKKKKK',
+  'KWWBBYBBWWK',
+  'KKKKKBKKKKK',
+  '....KBK....',
+  '....KWK....',
+  '....KWK....',
+  '....KKK....',
+];
+
+const WINDMILL_SAIL_B = [
+  '.KK.....KK.',
+  'KWWK...KWWK',
+  '.KWBK.KBWK.',
+  '..KBBKBBK..',
+  '...KKBKK...',
+  '....KBYK...',
+  '...KKBKK...',
+  '..KBBKBBK..',
+  '.KWBK.KBWK.',
+  'KWWK...KWWK',
+  '.KK.....KK.',
+];
+
+// 5e. Ancient Persian Stone Arch Ruins with Ivy
+const RUIN_GRID = [
+  '..KKKKKKKK...',
+  '.KLLLSSLLGK..',
+  '.KLSKKKSSGGK.',
+  '.KLSK.KSSK...',
+  '.KDSK.KDSK.KK',
+  '.KDSK.KDSKKLK',
+  '.KDDK.KDDKSDK',
+  'KKDDKKKDDKDDK',
+  'KKKKKKKKKKKKK',
+  '.............',
+];
+
+// 5f. Cozy Twin Village Hamlet with Glowing Warm Windows
+const VILLAGE_GRID = [
+  '..KKK....KKK..',
+  '.KRRRK..KOOOK.',
+  'KRRRRRKKOOOOOK',
+  '.KWWWK..KWWWK.',
+  '.KWYWK..KWWYK.',
+  '.KWWDK..KWDWK.',
+  '.KDDDK..KDDDK.',
+  'KKKKKKKKKKKKKK',
+  '..............',
+];
+
+// 5g. Desert Turquoise Oasis Pool
+const OASIS_GRID = [
+  '...KKKKKKKK...',
+  '.KKSSSSSSSSKK.',
+  'KSSTCCCCCCCSTK',
+  'KSTCCLLLLCCSTK',
+  'KSSTCCCCCCSTSK',
+  '.KKSSSTTTSSKK.',
+  '...KKKKKKKK...',
+  '..............',
+];
+
+// 5h. Craggy Ocean Sea Stack / Rocky Islet
+const SEA_ROCK_GRID = [
+  '.....KK.....',
+  '....KLLK....',
+  '...KLSSK.KK.',
+  '..KLSSDDKSLK',
+  '.KLSSDDDDDDK',
+  '.KSSDDDDDDDK',
+  'CCKKKKKKKKCC',
+  '.CCC....CCC.',
+  '............',
+];
+
+// 5i. Tiny Ambient Lateen-Sail Merchant Dhow
+const MERCHANT_DHOW_GRID = [
+  '.....K.....',
+  '....KWK....',
+  '...KWWK....',
+  '..KWWWK....',
+  '..KWWLK....',
+  '...KKK.....',
+  '.KKKBKKKK..',
+  '..KBBBBK...',
+  '.CCKKKKCC..',
+  '...........',
+];
+
 export interface FactionSprites {
+  castleSmall: HTMLCanvasElement;
+  castleSmallFlash: HTMLCanvasElement;
   castle: HTMLCanvasElement;
   castleFlash: HTMLCanvasElement;
+  castleGrand: HTMLCanvasElement;
+  castleGrandFlash: HTMLCanvasElement;
   barracks: HTMLCanvasElement;
+  barracksLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement];
   port: HTMLCanvasElement;
+  portLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement];
   soldierA: HTMLCanvasElement;
   soldierB: HTMLCanvasElement;
   eliteA: HTMLCanvasElement;
@@ -330,40 +719,81 @@ export interface FactionSprites {
 export class PixelSpriteAtlas {
   private factions = new Map<FactionId, FactionSprites>();
   public tower: HTMLCanvasElement;
+  public towerLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement];
   public mine: HTMLCanvasElement;
+  public mineLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement];
   public forge: HTMLCanvasElement;
+  public forgeLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement];
   public pine: HTMLCanvasElement;
   public oak: HTMLCanvasElement;
+  public cypress: HTMLCanvasElement;
+  public palm: HTMLCanvasElement;
   public mountain: HTMLCanvasElement;
   public wheat: HTMLCanvasElement;
+  public windmillBase: HTMLCanvasElement;
+  public windmillSailA: HTMLCanvasElement;
+  public windmillSailB: HTMLCanvasElement;
+  public ruin: HTMLCanvasElement;
+  public village: HTMLCanvasElement;
+  public oasis: HTMLCanvasElement;
+  public seaRock: HTMLCanvasElement;
+  public merchantDhow: HTMLCanvasElement;
 
   constructor() {
-    this.tower = bakeSprite(TOWER_GRID, {
+    const towerPalette: PaletteMap = {
       K: '#0b101a',
       L: '#cbd5e1',
       S: '#8a99ad',
-      D: '#4b586e',
-      B: '#38bdf8',
-    });
+      I: '#475569',
+      D: '#2a3444',
+      B: '#0284c7',
+      C: '#7dd3fc',
+      G: '#f5b83d',
+      Y: '#fef08a',
+    };
+    this.towerLevels = [
+      bakeSprite(TOWER_LV1_GRID, towerPalette),
+      bakeSprite(TOWER_LV2_GRID, towerPalette),
+      bakeSprite(TOWER_LV3_GRID, towerPalette),
+    ];
+    this.tower = this.towerLevels[0];
 
-    this.mine = bakeSprite(MINE_GRID, {
+    const minePalette: PaletteMap = {
       K: '#0b101a',
       B: '#7c4d25',
       b: '#5c3618',
+      L: '#cbd5e1',
+      S: '#8a99ad',
       D: '#3b2412',
       G: '#f59e0b',
       Y: '#fef08a',
-    });
+      R: '#e11d48',
+    };
+    this.mineLevels = [
+      bakeSprite(MINE_LV1_GRID, minePalette),
+      bakeSprite(MINE_LV2_GRID, minePalette),
+      bakeSprite(MINE_LV3_GRID, minePalette),
+    ];
+    this.mine = this.mineLevels[0];
 
-    this.forge = bakeSprite(FORGE_GRID, {
+    const forgePalette: PaletteMap = {
       K: '#0b101a',
       C: '#94a3b8',
       S: '#64748b',
+      I: '#3f4b5e',
       M: '#b45309',
-      D: '#334155',
+      D: '#1e293b',
       O: '#f97316',
       Y: '#fde047',
-    });
+      W: '#fffbeb',
+      G: '#f5b83d',
+    };
+    this.forgeLevels = [
+      bakeSprite(FORGE_LV1_GRID, forgePalette),
+      bakeSprite(FORGE_LV2_GRID, forgePalette),
+      bakeSprite(FORGE_LV3_GRID, forgePalette),
+    ];
+    this.forge = this.forgeLevels[0];
 
     this.pine = bakeSprite(PINE_GRID, {
       K: '#0d1a14',
@@ -381,6 +811,23 @@ export class PixelSpriteAtlas {
       B: '#6b4423',
     });
 
+    this.cypress = bakeSprite(CYPRESS_GRID, {
+      K: '#0b1913',
+      L: '#4eb86c',
+      G: '#267846',
+      D: '#164c2d',
+      B: '#5c3b20',
+    });
+
+    this.palm = bakeSprite(PALM_GRID, {
+      K: '#0e1b14',
+      L: '#65c458',
+      G: '#2d8a43',
+      Y: '#d97706',
+      B: '#9a683a',
+      D: '#6b4423',
+    });
+
     this.mountain = bakeSprite(MOUNTAIN_GRID, {
       K: '#141923',
       W: '#edf2f7',
@@ -395,7 +842,71 @@ export class PixelSpriteAtlas {
       D: '#854d0e',
     });
 
-    // Bake faction-colored castles, barracks, and animated soldier squads
+    this.windmillBase = bakeSprite(WINDMILL_BASE_GRID, {
+      K: '#111722',
+      R: '#b45309',
+      L: '#f5efe2',
+      S: '#d6ccb8',
+      D: '#8c806c',
+      G: '#3b2818',
+    });
+
+    this.windmillSailA = bakeSprite(WINDMILL_SAIL_A, {
+      K: '#111722',
+      W: '#f8f2e4',
+      B: '#a16207',
+      Y: '#fde047',
+    });
+
+    this.windmillSailB = bakeSprite(WINDMILL_SAIL_B, {
+      K: '#111722',
+      W: '#f8f2e4',
+      B: '#a16207',
+      Y: '#fde047',
+    });
+
+    this.ruin = bakeSprite(RUIN_GRID, {
+      K: '#151b26',
+      L: '#e5dcc8',
+      S: '#b8ae99',
+      D: '#756e5f',
+      G: '#3f9952',
+    });
+
+    this.village = bakeSprite(VILLAGE_GRID, {
+      K: '#0f1622',
+      R: '#b84735',
+      O: '#c27a34',
+      W: '#e8dec8',
+      D: '#7a6c58',
+      Y: '#fde047',
+    });
+
+    this.oasis = bakeSprite(OASIS_GRID, {
+      K: '#242b23',
+      S: '#dfc389',
+      T: '#2bb3a8',
+      C: '#38bdf8',
+      L: '#bae6fd',
+    });
+
+    this.seaRock = bakeSprite(SEA_ROCK_GRID, {
+      K: '#0a1424',
+      L: '#7d8fa6',
+      S: '#4e5d73',
+      D: '#2a364a',
+      C: '#9ad8e8',
+    });
+
+    this.merchantDhow = bakeSprite(MERCHANT_DHOW_GRID, {
+      K: '#0b1424',
+      W: '#f8f5eb',
+      L: '#d6cbb8',
+      B: '#8c5327',
+      C: '#9ad8e8',
+    });
+
+    // Bake faction-colored castles (3 tiers), barracks, ports, soldiers & warships
     this.bakeFaction(-1, NEUTRAL_STYLE.color, NEUTRAL_STYLE.borderGlow, '#cbd5e1');
     for (const f of FACTIONS) {
       this.bakeFaction(f.id, f.color, f.borderGlow, f.bannerLight);
@@ -416,6 +927,8 @@ export class PixelSpriteAtlas {
       G: '#1e293b',
       M: highlight,
       R: primary,
+      A: '#f5b83d',
+      Y: '#fef08a',
       W: '#ffffff',
     };
 
@@ -434,19 +947,27 @@ export class PixelSpriteAtlas {
     const barracksPalette: PaletteMap = {
       K: '#0b101a',
       W: '#ece4d3',
-      S: '#bfb49f',
+      L: '#cbd5e1',
+      S: '#8e99a8',
       D: '#2a221c',
       R: primary,
+      M: highlight,
+      A: '#d97706',
+      G: '#f5b83d',
+      Y: '#fef08a',
     };
 
     const portPalette: PaletteMap = {
       K: '#0b101a',
       Y: '#fef08a',
       W: '#e2e8f0',
+      L: '#cbd5e1',
+      S: '#7e8ea3',
       R: primary,
       P: light,
       B: '#9a683a',
-      D: '#5c3a1e',
+      D: '#4c3a2a',
+      G: '#f5b83d',
     };
 
     const shipPalette: PaletteMap = {
@@ -461,11 +982,29 @@ export class PixelSpriteAtlas {
       C: '#bae6fd',
     };
 
+    const barracksLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement] = [
+      bakeSprite(BARRACKS_LV1_GRID, barracksPalette),
+      bakeSprite(BARRACKS_LV2_GRID, barracksPalette),
+      bakeSprite(BARRACKS_LV3_GRID, barracksPalette),
+    ];
+
+    const portLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement] = [
+      bakeSprite(PORT_LV1_GRID, portPalette),
+      bakeSprite(PORT_LV2_GRID, portPalette),
+      bakeSprite(PORT_LV3_GRID, portPalette),
+    ];
+
     this.factions.set(id, {
+      castleSmall: bakeSprite(CASTLE_SMALL_GRID, castlePalette),
+      castleSmallFlash: bakeSprite(CASTLE_SMALL_FLASH, castlePalette),
       castle: bakeSprite(CASTLE_GRID, castlePalette),
       castleFlash: bakeSprite(CASTLE_GRID_FLASH, castlePalette),
-      barracks: bakeSprite(BARRACKS_GRID, barracksPalette),
-      port: bakeSprite(PORT_GRID, portPalette),
+      castleGrand: bakeSprite(CASTLE_GRAND_GRID, castlePalette),
+      castleGrandFlash: bakeSprite(CASTLE_GRAND_FLASH, castlePalette),
+      barracks: barracksLevels[0],
+      barracksLevels,
+      port: portLevels[0],
+      portLevels,
       soldierA: bakeSprite(SOLDIER_FRAME_A, soldierPalette),
       soldierB: bakeSprite(SOLDIER_FRAME_B, soldierPalette),
       eliteA: bakeSprite(ELITE_FRAME_A, soldierPalette),

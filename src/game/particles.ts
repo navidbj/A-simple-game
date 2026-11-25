@@ -458,8 +458,19 @@ export class ParticleSystem {
       } else if (ev.type === 'tower_block') {
         this.spawnTowerBlockEffect(ev.x, ev.y, ev.amount ?? 6);
       } else if (ev.type === 'build') {
-        this.spawnRing('dispatch', ev.x, ev.y - 2, '#fde047', 10, 34, 0.36, 2);
-        this.spawnRadialBurst(ev.x, ev.y - 4, '#fde047', 14, 78, 'glint', '#f59e0b');
+        const lvl = ev.buildingLevel ?? 1;
+        if (lvl >= 3) {
+          this.spawnRing('capture', ev.x, ev.y - 4, '#fef08a', 10, 56, 0.5, 3);
+          this.spawnRing('dispatch', ev.x, ev.y - 4, '#f59e0b', 6, 38, 0.36, 2);
+          this.spawnRadialBurst(ev.x, ev.y - 6, '#fef08a', 26, 118, 'glint', '#f59e0b');
+          this.spawnRadialBurst(ev.x, ev.y - 4, '#f97316', 12, 86, 'ember', '#fde047');
+        } else if (lvl === 2) {
+          this.spawnRing('capture', ev.x, ev.y - 2, '#e2e8f0', 10, 44, 0.42, 3);
+          this.spawnRadialBurst(ev.x, ev.y - 4, '#fde047', 18, 95, 'glint', '#e2e8f0');
+        } else {
+          this.spawnRing('dispatch', ev.x, ev.y - 2, '#fde047', 10, 34, 0.36, 2);
+          this.spawnRadialBurst(ev.x, ev.y - 4, '#fde047', 14, 78, 'glint', '#f59e0b');
+        }
       } else if (ev.type === 'power') {
         const col =
           ev.power === 'mobilize' ? '#fbbf24' : ev.power === 'blitz' ? '#38bdf8' : '#60a5fa';
@@ -519,68 +530,72 @@ export class ParticleSystem {
 
     if (isTitleBackdrop) return;
 
-    // 2. Subtle ambient life around constructed pixel buildings
+    // 2. Subtle ambient life around constructed pixel buildings (intensifies on Lv.2 & Lv.3)
     for (const t of sim.territories) {
-      if (t.hasMine && this.rand() < 0.16) {
+      const mineLvl = Math.max(t.buildingLevels?.mine ?? 0, t.hasMine ? 1 : 0);
+      if (mineLvl > 0 && this.rand() < 0.12 + mineLvl * 0.08) {
         const p = this.allocParticle();
         p.kind = 'glint';
-        p.x = t.x - 24 + (this.rand() - 0.5) * 10;
-        p.y = t.y + 4 + (this.rand() - 0.5) * 6;
+        p.x = t.x - 28 + (this.rand() - 0.5) * 12;
+        p.y = t.y + 2 + (this.rand() - 0.5) * 8;
         p.vx = (this.rand() - 0.5) * 8;
-        p.vy = -14 - this.rand() * 10;
+        p.vy = -14 - this.rand() * (10 + mineLvl * 4);
         p.maxLife = 0.45 + this.rand() * 0.25;
-        p.size = 3;
-        p.color = '#fef08a';
+        p.size = mineLvl === 3 ? 3 : 2;
+        p.color = mineLvl === 3 ? '#fffbeb' : '#fef08a';
         p.secondaryColor = '#f59e0b';
         p.gravity = -4;
         p.drag = 0.95;
         p.groundY = t.y + 12;
       }
 
-      if (t.hasForge && this.rand() < 0.32) {
-        const isEmber = this.rand() < 0.35;
+      const forgeLvl = Math.max(t.buildingLevels?.forge ?? 0, t.hasForge ? 1 : 0);
+      if (forgeLvl > 0 && this.rand() < 0.24 + forgeLvl * 0.1) {
+        const isEmber = this.rand() < 0.32 + forgeLvl * 0.12;
         const p = this.allocParticle();
         p.kind = isEmber ? 'ember' : 'dust';
-        p.x = t.x + (isEmber ? 22 : 30) + (this.rand() - 0.5) * 4;
-        p.y = t.y - (isEmber ? 12 : 26);
+        p.x = t.x + (isEmber ? 24 : 30) + (this.rand() - 0.5) * 6;
+        p.y = t.y - (isEmber ? 14 + forgeLvl * 4 : 26 + forgeLvl * 3);
         p.vx = (this.rand() - 0.5) * 10;
-        p.vy = isEmber ? -24 - this.rand() * 14 : -16 - this.rand() * 10;
+        p.vy = isEmber ? -24 - this.rand() * (14 + forgeLvl * 5) : -16 - this.rand() * 10;
         p.maxLife = isEmber ? 0.45 + this.rand() * 0.25 : 0.62 + this.rand() * 0.3;
-        p.size = isEmber ? 2 : 4;
-        p.color = isEmber ? '#fbbf24' : '#94a3b8';
+        p.size = isEmber ? (forgeLvl === 3 ? 3 : 2) : 4;
+        p.color = isEmber ? (forgeLvl === 3 ? '#fef08a' : '#fbbf24') : '#94a3b8';
         p.secondaryColor = isEmber ? '#ef4444' : '#475569';
         p.gravity = -8;
         p.drag = 0.96;
         p.groundY = t.y + 10;
       }
 
-      if (t.hasTower && this.rand() < 0.1) {
+      const towerLvl = Math.max(t.buildingLevels?.tower ?? 0, t.hasTower ? 1 : 0);
+      if (towerLvl > 0 && this.rand() < 0.08 + towerLvl * 0.06) {
         const p = this.allocParticle();
         p.kind = 'glint';
-        p.x = t.x - 23 + (this.rand() - 0.5) * 6;
-        p.y = t.y - 26 + (this.rand() - 0.5) * 4;
-        p.vx = (this.rand() - 0.5) * 6;
-        p.vy = -10 - this.rand() * 8;
-        p.maxLife = 0.4 + this.rand() * 0.2;
-        p.size = 2;
-        p.color = '#bae6fd';
+        p.x = t.x - 27 + (this.rand() - 0.5) * 8;
+        p.y = t.y - (26 + towerLvl * 6) + (this.rand() - 0.5) * 4;
+        p.vx = (this.rand() - 0.5) * 7;
+        p.vy = -10 - this.rand() * 10;
+        p.maxLife = 0.4 + this.rand() * 0.22;
+        p.size = towerLvl === 3 ? 3 : 2;
+        p.color = towerLvl === 3 && this.rand() > 0.5 ? '#fef08a' : '#bae6fd';
         p.secondaryColor = '#38bdf8';
         p.gravity = -4;
         p.drag = 0.95;
         p.groundY = t.y;
       }
 
-      if (t.hasBarracks && this.rand() < 0.12) {
+      const barracksLvl = Math.max(t.buildingLevels?.barracks ?? 0, t.hasBarracks ? 1 : 0);
+      if (barracksLvl > 0 && this.rand() < 0.1 + barracksLvl * 0.05) {
         const p = this.allocParticle();
-        p.kind = 'ember';
-        p.x = t.x + 25 + (this.rand() - 0.5) * 6;
-        p.y = t.y + 1;
+        p.kind = barracksLvl === 3 ? 'glint' : 'ember';
+        p.x = t.x + 26 + (this.rand() - 0.5) * 8;
+        p.y = t.y - barracksLvl * 3;
         p.vx = (this.rand() - 0.5) * 8;
         p.vy = -16 - this.rand() * 10;
         p.maxLife = 0.36 + this.rand() * 0.22;
         p.size = 2;
         p.color = '#fde047';
-        p.secondaryColor = '#ef4444';
+        p.secondaryColor = barracksLvl === 3 ? '#f59e0b' : '#ef4444';
         p.gravity = -6;
         p.drag = 0.95;
         p.groundY = t.y + 10;

@@ -78,19 +78,34 @@ export function buildBattleLogEntries(
         ev.building === 'forge' ||
         ev.building === 'port'
       ) {
-        const bName = BUILDINGS[ev.building].name;
-        const suffix = ev.owner === 0 ? 'ساخته شد' : `توسط ${faction?.shortName ?? 'رقیب'} ساخته شد`;
+        const lvl = ev.buildingLevel ?? 1;
+        const cfg = BUILDINGS[ev.building];
+        const tierName = cfg.levelNames[Math.max(0, Math.min(2, lvl - 1))];
+        const text =
+          lvl >= 3
+            ? ev.owner === 0
+              ? `${cfg.name} در «${castleName}» به ${tierName} (حداکثر سطح ۳) ارتقا یافت ★`
+              : `${tierName} در «${castleName}» توسط ${faction?.shortName ?? 'رقیب'} تکمیل شد`
+            : lvl === 2
+              ? ev.owner === 0
+                ? `${cfg.name} در «${castleName}» به ${tierName} (سطح ۲) ارتقا یافت`
+                : `${cfg.name} «${castleName}» توسط ${faction?.shortName ?? 'رقیب'} به سطح ۲ ارتقا یافت`
+              : ev.owner === 0
+                ? `${cfg.name} در «${castleName}» ساخته شد`
+                : `${cfg.name} در «${castleName}» توسط ${faction?.shortName ?? 'رقیب'} ساخته شد`;
         created.push({
           id: nextIdRef.current++,
           timeText,
-          text: `${bName} در «${castleName}» ${suffix}`,
+          text,
           tone: 'build',
           accentColor:
-            ev.building === 'port'
-              ? '#38bdf8'
-              : ev.owner === 0
-                ? '#86efac'
-                : factionColor,
+            lvl >= 3
+              ? '#fde047'
+              : ev.building === 'port'
+                ? '#38bdf8'
+                : ev.owner === 0
+                  ? '#86efac'
+                  : factionColor,
         });
       }
     } else if (ev.type === 'power' && ev.power && ev.owner === 0) {

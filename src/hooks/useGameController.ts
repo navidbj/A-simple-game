@@ -1,30 +1,41 @@
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { soundEngine } from '../game/audio';
-import { BUILDINGS, COMMANDER_POWERS, SEND_RATIOS } from '../game/constants';
+import { appendBattleLog, buildBattleLogEntries } from '../game/battleLog';
+import { BUILDINGS, COMMANDER_POWERS, MAX_BUILDING_LEVEL, SEND_RATIOS } from '../game/constants';
 import { GameRenderer } from '../game/renderer';
 import {
   buildHudSnapshot,
   buildStructure,
+  canDispatchTo,
+  clearSupplyRoute,
+  computeBattleIntensity,
   createInitialMatch,
   cycleOwnedTerritory,
   dispatchTroops,
+  getBuildingLevel,
+  getNextBuildingCost,
   getTerritoryAtPoint,
   getWeakestEnemyNeighbor,
-  isBuildingBuilt,
   rallyReinforcements,
+  setSupplyRoute,
   stepSimulation,
   triggerCommanderPower,
 } from '../game/simulation';
 import type {
+  BattleLogEntry,
   BuildingType,
   Difficulty,
   DragAimState,
   GamePhase,
   GameSimulation,
   HudSnapshot,
+  MapGridData,
+  MapPreset,
   PowerType,
   SimEvent,
+  Territory,
+  TimelapseSnapshot,
 } from '../game/types';
 
 export const SPEED_STEPS = [1, 1.5, 2] as const;
@@ -72,19 +83,30 @@ function createIdleDragAim(): DragAimState {
     hoverTargetId: null,
     isValidTarget: false,
     isFriendlyTarget: false,
+    isNavalTarget: false,
   };
+}
+
+export interface TimelapseData {
+  map: MapGridData;
+  territories: Territory[];
+  snapshots: TimelapseSnapshot[];
 }
 
 export function useGameController() {
   const autoStart = getInitialAutoStart();
   const initialDifficulty: Difficulty = 'normal';
+  const initialPreset: MapPreset = 'continent';
   const initialSeed = getInitialSeed();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<GameRenderer | null>(null);
-  const simRef = useRef<GameSimulation>(createInitialMatch(initialSeed, initialDifficulty));
+  const simRef = useRef<GameSimulation>(
+    createInitialMatch(initialSeed, initialDifficulty, initialPreset)
+  );
   const phaseRef = useRef<GamePhase>(autoStart ? 'playing' : 'title');
   const difficultyRef = useRef<Difficulty>(initialDifficulty);
+  const presetRef = useRef<MapPreset>(initialPreset);
   const sendRatioRef = useRef<number>(0.5);
   const speedRef = useRef<GameSpeed>(1);
   const selectedIdRef = useRef<number | null>(
@@ -96,12 +118,19 @@ export function useGameController() {
   const lastTapRef = useRef<LastTapInfo | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const shortcutsOpenRef = useRef<boolean>(false);
+  const supplyModeRef = useRef<boolean>(false);
+  const battleLogIdRef = useRef<{ current: number }>({ current: 1 });
 
   const [muted, setMuted] = useState(() => soundEngine.isMuted());
+  const [musicMuted, setMusicMuted] = useState(() => soundEngine.isMusicMuted());
   const [gameSpeed, setGameSpeed] = useState<GameSpeed>(1);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [battleLogOpen, setBattleLogOpen] = useState(false);
+  const [battleLog, setBattleLog] = useState<BattleLogEntry[]>([]);
+  const [supplyMode, setSupplyMode] = useState(false);
   const [portraitDismissed, setPortraitDismissed] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: 'error' | 'info' } | null>(null);
+  const [timelapseData, setTimelapseData] = useState<TimelapseData | null>(null);
   const [hud, setHud] = useState<HudSnapshot>(() =>
     buildHudSnapshot(
       simRef.current,
@@ -114,6 +143,10 @@ export function useGameController() {
   useEffect(() => {
     shortcutsOpenRef.current = shortcutsOpen;
   }, [shortcutsOpen]);
+
+  useEffect(() => {
+    supplyModeRef.current = supplyMode;
+  }, [supplyMode]);
 
   const clearPointerInteraction = useCallback((clearHover = true) => {
     if (clearHover) hoveredIdRef.current = null;
@@ -143,6 +176,18 @@ export function useGameController() {
     }, 2200);
   }, []);
 
+  const recordBattleEvents = useCallback((events: SimEvent[]) => {
+    if (events.length === 0) return;
+    const entries = buildBattleLogEntries(
+      events,
+      simRef.current.stats.elapsedSeconds,
+      battleLogIdRef.current
+    );
+    if (entries.length > 0) {
+      setBattleLog((prev) => appendBattleLog(prev, entries));
+    }
+  }, []);
+
   const handleEventsAudio = useCallback((events: SimEvent[], isPlaying: boolean) => {
     if (!isPlaying || events.length === 0) return;
     let playedClash = false;
@@ -159,7 +204,7 @@ export function useGameController() {
         soundEngine.playClash();
         playedClash = true;
       } else if (ev.type === 'build' && ev.owner === 0) {
-        soundEngine.playBuild();
+        soundEngine.playBuild(ev.buildingLevel ?? 1);
       } else if (ev.type === 'power' && ev.owner === 0) {
         soundEngine.playPower();
       }
@@ -167,9 +212,11 @@ export function useGameController() {
   }, []);
 
   const startFreshMatch = useCallback(
-    (seed?: number, nextPhase: GamePhase = 'playing') => {
+    (seed?: number, nextPhase: GamePhase = 'playing', preset?: MapPreset) => {
       const nextSeed = seed ?? makeRandomSeed();
-      simRef.current = createInitialMatch(nextSeed, difficultyRef.current);
+      const nextPreset = preset ?? presetRef.current;
+      presetRef.current = nextPreset;
+      simRef.current = createInitialMatch(nextSeed, difficultyRef.current, nextPreset);
       rendererRef.current?.clearEffects();
       selectedIdRef.current =
         simRef.current.territories.find((t) => t.owner === 0)?.id ?? null;
@@ -181,7 +228,16 @@ export function useGameController() {
         document.activeElement.blur();
       }
       setShortcutsOpen(false);
+      setSupplyMode(false);
+      setBattleLog([]);
+      setTimelapseData(null);
       setToast(null);
+      if (nextPhase === 'playing') {
+        soundEngine.setMusicIntensity(0);
+        soundEngine.startMusic();
+      } else {
+        soundEngine.stopMusic();
+      }
       syncHud();
     },
     [clearPointerInteraction, syncHud]
@@ -189,7 +245,7 @@ export function useGameController() {
 
   const handleStartFromTitle = useCallback(() => {
     soundEngine.playSelect();
-    startFreshMatch(simRef.current.seed, 'playing');
+    startFreshMatch(simRef.current.seed, 'playing', presetRef.current);
   }, [startFreshMatch]);
 
   const handleSelectDifficulty = useCallback(
@@ -202,14 +258,23 @@ export function useGameController() {
     [syncHud]
   );
 
+  const handleSelectMapPreset = useCallback(
+    (preset: MapPreset) => {
+      presetRef.current = preset;
+      soundEngine.playSelect();
+      startFreshMatch(makeRandomSeed(), phaseRef.current, preset);
+    },
+    [startFreshMatch]
+  );
+
   const handlePreviewNewMap = useCallback(() => {
     soundEngine.playSelect();
-    startFreshMatch(makeRandomSeed(), 'title');
+    startFreshMatch(makeRandomSeed(), 'title', presetRef.current);
   }, [startFreshMatch]);
 
   const handleNewMapInGame = useCallback(() => {
     soundEngine.playSelect();
-    startFreshMatch(makeRandomSeed(), 'playing');
+    startFreshMatch(makeRandomSeed(), 'playing', presetRef.current);
   }, [startFreshMatch]);
 
   const handleTogglePause = useCallback(() => {
@@ -217,24 +282,37 @@ export function useGameController() {
       phaseRef.current = 'paused';
       document.body.dataset.state = 'paused';
       clearPointerInteraction();
+      setSupplyMode(false);
+      soundEngine.stopMusic();
       soundEngine.playSelect();
       syncHud();
     } else if (phaseRef.current === 'paused') {
       phaseRef.current = 'playing';
       document.body.dataset.state = 'playing';
       soundEngine.playSelect();
+      soundEngine.startMusic();
       syncHud();
     }
   }, [clearPointerInteraction, syncHud]);
 
   const handleReturnTitle = useCallback(() => {
     soundEngine.playSelect();
-    startFreshMatch(makeRandomSeed(), 'title');
+    startFreshMatch(makeRandomSeed(), 'title', presetRef.current);
   }, [startFreshMatch]);
 
   const handleToggleMute = useCallback(() => {
     const next = soundEngine.toggleMute();
     setMuted(next);
+  }, []);
+
+  const handleToggleMusic = useCallback(() => {
+    const next = soundEngine.toggleMusic();
+    setMusicMuted(next);
+  }, []);
+
+  const handleToggleBattleLog = useCallback(() => {
+    setBattleLogOpen((prev) => !prev);
+    soundEngine.playSelect();
   }, []);
 
   const handleCycleSpeed = useCallback(() => {
@@ -269,8 +347,13 @@ export function useGameController() {
       const events: SimEvent[] = [];
       const res = dispatchTroops(simRef.current, fromId, toId, ratio, 0, events);
       if (res.ok) {
-        soundEngine.playDispatch();
+        if (res.isNaval) {
+          soundEngine.playNavalLaunch();
+        } else {
+          soundEngine.playDispatch();
+        }
         rendererRef.current?.consumeEvents(events);
+        recordBattleEvents(events);
         syncHud();
         return true;
       }
@@ -279,13 +362,83 @@ export function useGameController() {
         res.reason === 'not_owner'
           ? 'این قلعه دیگر در اختیار شما نیست.'
           : res.reason === 'not_neighbor'
-            ? 'فقط به سرزمین‌های هم‌مرز (متصل با خط‌چین) می‌توانید حمله کنید.'
+            ? 'فقط به همسایگان مرزی یا با بندرگاه به قلعه‌های ساحلی می‌توانید حمله کنید.'
             : 'نیروی نظامی کافی برای اعزام وجود ندارد.';
       showToast(message, 'error');
       return false;
     },
-    [showToast, syncHud]
+    [recordBattleEvents, showToast, syncHud]
   );
+
+  const executeSetSupplyRoute = useCallback(
+    (fromId: number, toId: number) => {
+      const events: SimEvent[] = [];
+      const res = setSupplyRoute(simRef.current, fromId, toId, 0, events);
+      if (res.ok) {
+        soundEngine.playSelect();
+        recordBattleEvents(events);
+        setSupplyMode(false);
+        const toName = simRef.current.territories[toId]?.name ?? 'مقصد';
+        showToast(
+          res.action === 'set'
+            ? `خط تأمین خودکار به سوی «${toName}» فعال شد.`
+            : 'خط تأمین خودکار لغو شد.',
+          'info'
+        );
+        syncHud();
+        return true;
+      }
+      soundEngine.playError();
+      const msg =
+        res.reason === 'target_not_friendly'
+          ? 'خط تأمین فقط به قلعه‌های هم‌مرز خودی متصل می‌شود.'
+          : 'فقط بین دو قلعه هم‌مرز خودی می‌توانید خط تأمین بسازید.';
+      showToast(msg, 'error');
+      return false;
+    },
+    [recordBattleEvents, showToast, syncHud]
+  );
+
+  const handleToggleSupplyMode = useCallback(() => {
+    if (phaseRef.current !== 'playing') return;
+    const selId = selectedIdRef.current;
+    const sel = selId !== null ? simRef.current.territories[selId] : null;
+    if (!sel || sel.owner !== 0) {
+      soundEngine.playError();
+      showToast('ابتدا یکی از قلعه‌های خود را انتخاب کنید.', 'info');
+      return;
+    }
+    if (sel.supplyTargetId !== null) {
+      const events: SimEvent[] = [];
+      clearSupplyRoute(simRef.current, sel.id, 0, events);
+      recordBattleEvents(events);
+      setSupplyMode(false);
+      soundEngine.playSelect();
+      showToast(`خط تأمین «${sel.name}» لغو شد.`, 'info');
+      syncHud();
+      return;
+    }
+    const friendlyNeighbors = sel.neighbors.filter(
+      (nId) => simRef.current.territories[nId]?.owner === 0
+    );
+    if (friendlyNeighbors.length === 0) {
+      soundEngine.playError();
+      showToast('همسایه خودی برای ایجاد خط تأمین وجود ندارد.', 'info');
+      return;
+    }
+    if (friendlyNeighbors.length === 1) {
+      executeSetSupplyRoute(sel.id, friendlyNeighbors[0]);
+      return;
+    }
+    setSupplyMode((prev) => {
+      const next = !prev;
+      if (next) {
+        showToast('روی قلعه هم‌مرز خودی مقصد کلیک کنید تا خط تأمین برقرار شود.', 'info');
+      }
+      return next;
+    });
+    soundEngine.playSelect();
+  }, [executeSetSupplyRoute, recordBattleEvents, showToast, syncHud]);
 
   const rallyForCastle = useCallback(
     (targetId: number | null, excludeFromId?: number) => {
@@ -335,17 +488,29 @@ export function useGameController() {
       if (built) {
         rendererRef.current?.consumeEvents(events);
         handleEventsAudio(events, true);
+        recordBattleEvents(events);
         syncHud();
       } else {
         soundEngine.playError();
-        if (isBuildingBuilt(sel, type)) {
-          showToast(`${BUILDINGS[type].name} قبلاً در این قلعه ساخته شده است.`, 'info');
+        const lvl = getBuildingLevel(sel, type);
+        const nextCost = getNextBuildingCost(sel, type);
+        if (lvl >= MAX_BUILDING_LEVEL || nextCost === null) {
+          showToast(
+            `${BUILDINGS[type].levelNames[MAX_BUILDING_LEVEL - 1]} به حداکثر سطح ۳ رسیده است.`,
+            'info'
+          );
+        } else if (type === 'port' && !sel.isCoastal) {
+          showToast('بندرگاه فقط در قلعه‌های ساحلی قابل ساخت است.', 'info');
         } else {
-          showToast(`برای ساخت ${BUILDINGS[type].name} به ${BUILDINGS[type].cost} نیروی نظامی نیاز دارید.`, 'error');
+          const actionLabel = lvl === 0 ? 'ساخت' : `ارتقای سطح ${lvl + 1}`;
+          showToast(
+            `برای ${actionLabel} ${BUILDINGS[type].name} به ${nextCost} نیروی نظامی نیاز دارید.`,
+            'error'
+          );
         }
       }
     },
-    [handleEventsAudio, showToast, syncHud]
+    [handleEventsAudio, recordBattleEvents, showToast, syncHud]
   );
 
   const handleTriggerPower = useCallback(
@@ -361,6 +526,7 @@ export function useGameController() {
       if (fired) {
         rendererRef.current?.consumeEvents(events);
         handleEventsAudio(events, true);
+        recordBattleEvents(events);
         syncHud();
       } else {
         soundEngine.playError();
@@ -377,7 +543,7 @@ export function useGameController() {
         }
       }
     },
-    [handleEventsAudio, showToast, syncHud]
+    [handleEventsAudio, recordBattleEvents, showToast, syncHud]
   );
 
   const handleQuickAttackSpace = useCallback(() => {
@@ -483,7 +649,11 @@ export function useGameController() {
           }
           if (session.hasDragged) {
             const targetId = hit && hit.id !== origin.id ? hit.id : null;
-            const isValidTarget = targetId !== null && origin.neighbors.includes(targetId);
+            const check =
+              targetId !== null
+                ? canDispatchTo(simRef.current, origin.id, targetId)
+                : { allowed: false, isNaval: false };
+            const isValidTarget = check.allowed;
             const isFriendlyTarget =
               isValidTarget &&
               targetId !== null &&
@@ -496,6 +666,7 @@ export function useGameController() {
               hoverTargetId: targetId,
               isValidTarget,
               isFriendlyTarget,
+              isNavalTarget: check.allowed && check.isNaval,
             };
           }
         }
@@ -535,7 +706,7 @@ export function useGameController() {
           executeDispatch(drag.originId, drag.hoverTargetId, sendRatioRef.current);
         } else if (drag.hoverTargetId !== null && !drag.isValidTarget) {
           soundEngine.playError();
-          showToast('فقط به سرزمین‌های هم‌مرز (متصل با خط‌چین) می‌توانید حمله کنید.', 'error');
+          showToast('فقط به همسایگان مرزی یا با بندرگاه به قلعه‌های ساحلی می‌توانید حمله کنید.', 'error');
         }
         return;
       }
@@ -549,7 +720,23 @@ export function useGameController() {
       if (!clicked) {
         selectedIdRef.current = null;
         lastTapRef.current = null;
+        setSupplyMode(false);
         syncHud();
+        return;
+      }
+
+      const currentSelId = selectedIdRef.current;
+      const currentSel =
+        currentSelId !== null ? simRef.current.territories[currentSelId] : null;
+
+      // Shift+Click OR active Supply Mode on a friendly neighbor establishes/clears Auto-Supply line
+      if (
+        currentSel &&
+        currentSel.owner === 0 &&
+        clicked.id !== currentSel.id &&
+        (e.shiftKey || supplyModeRef.current)
+      ) {
+        executeSetSupplyRoute(currentSel.id, clicked.id);
         return;
       }
 
@@ -567,10 +754,6 @@ export function useGameController() {
         return;
       }
 
-      const currentSelId = selectedIdRef.current;
-      const currentSel =
-        currentSelId !== null ? simRef.current.territories[currentSelId] : null;
-
       if (!currentSel || currentSel.owner !== 0) {
         lastTapRef.current = clicked.owner === 0 ? { id: clicked.id, time: now } : null;
         selectedIdRef.current = clicked.id;
@@ -587,10 +770,11 @@ export function useGameController() {
         return;
       }
 
-      if (currentSel.neighbors.includes(clicked.id)) {
+      const routeCheck = canDispatchTo(simRef.current, currentSel.id, clicked.id);
+      if (routeCheck.allowed) {
         const dispatched = executeDispatch(currentSel.id, clicked.id, sendRatioRef.current);
         lastTapRef.current =
-          clicked.owner === 0
+          clicked.owner === 0 && !routeCheck.isNaval
             ? {
                 id: clicked.id,
                 time: now,
@@ -610,9 +794,9 @@ export function useGameController() {
       }
 
       soundEngine.playError();
-      showToast('فقط به سرزمین‌های هم‌مرز (متصل با خط‌چین) می‌توانید حمله کنید.', 'error');
+      showToast('فقط به همسایگان مرزی یا با بندرگاه به قلعه‌های ساحلی می‌توانید حمله کنید.', 'error');
     },
-    [executeDispatch, rallyForCastle, showToast, syncHud]
+    [executeDispatch, executeSetSupplyRoute, rallyForCastle, showToast, syncHud]
   );
 
   const handleCanvasPointerCancel = useCallback(() => {
@@ -636,13 +820,20 @@ export function useGameController() {
       const selId = selectedIdRef.current;
       const sel = selId !== null ? simRef.current.territories[selId] : null;
 
-      if (sel && sel.owner === 0 && clicked && clicked.id !== sel.id && sel.neighbors.includes(clicked.id)) {
+      if (
+        sel &&
+        sel.owner === 0 &&
+        clicked &&
+        clicked.id !== sel.id &&
+        canDispatchTo(simRef.current, sel.id, clicked.id).allowed
+      ) {
         executeDispatch(sel.id, clicked.id, 1.0);
         return;
       }
 
-      if (selectedIdRef.current !== null) {
+      if (selectedIdRef.current !== null || supplyModeRef.current) {
         selectedIdRef.current = null;
+        setSupplyMode(false);
         soundEngine.playSelect();
         syncHud();
       }
@@ -693,6 +884,11 @@ export function useGameController() {
         return;
       }
 
+      if (code === 'KeyB') {
+        handleToggleMusic();
+        return;
+      }
+
       if (phaseRef.current === 'title') {
         if (code === 'Enter' || code === 'Space') {
           const active = document.activeElement;
@@ -706,6 +902,11 @@ export function useGameController() {
       }
 
       if (code === 'Escape' || code === 'KeyP') {
+        if (supplyModeRef.current && code === 'Escape') {
+          e.preventDefault();
+          setSupplyMode(false);
+          return;
+        }
         if (phaseRef.current === 'playing' || phaseRef.current === 'paused') {
           e.preventDefault();
           handleTogglePause();
@@ -723,10 +924,13 @@ export function useGameController() {
       else if (code === 'KeyW') handleBuild('tower');
       else if (code === 'KeyE') handleBuild('mine');
       else if (code === 'KeyR') handleBuild('forge');
+      else if (code === 'KeyT') handleBuild('port');
       else if (code === 'KeyZ') handleTriggerPower('mobilize');
       else if (code === 'KeyX') handleTriggerPower('blitz');
       else if (code === 'KeyC') handleTriggerPower('shield');
       else if (code === 'KeyA') handleRallySelected();
+      else if (code === 'KeyS') handleToggleSupplyMode();
+      else if (code === 'KeyL') handleToggleBattleLog();
       else if (code === 'KeyF') handleCycleSpeed();
       else if (code === 'KeyN') handleNewMapInGame();
       else if (code === 'Tab') {
@@ -758,8 +962,11 @@ export function useGameController() {
     handleQuickAttackSpace,
     handleRallySelected,
     handleStartFromTitle,
+    handleToggleBattleLog,
+    handleToggleMusic,
     handleToggleMute,
     handleTogglePause,
+    handleToggleSupplyMode,
     handleTriggerPower,
   ]);
 
@@ -812,17 +1019,26 @@ export function useGameController() {
         renderer.consumeEvents(events);
         renderer.updateEffects(dt, sim, false);
         handleEventsAudio(events, true);
+        recordBattleEvents(events);
 
         if (sim.outcome !== 'none') {
           phaseRef.current = 'gameover';
           document.body.dataset.state = 'gameover';
           clearPointerInteraction();
+          setSupplyMode(false);
+          soundEngine.stopMusic();
+          setTimelapseData({
+            map: sim.map,
+            territories: sim.territories.map((t) => ({ ...t })),
+            snapshots: [...sim.timelapse],
+          });
           needsStaticRender = true;
           syncHud();
         } else {
           hudTimer += dt;
           if (hudTimer >= 0.16) {
             hudTimer = 0;
+            soundEngine.setMusicIntensity(computeBattleIntensity(sim));
             syncHud();
           }
         }
@@ -844,7 +1060,7 @@ export function useGameController() {
             }
           }
           if (!multipleOwners) {
-            sim = createInitialMatch(makeRandomSeed(), difficultyRef.current);
+            sim = createInitialMatch(makeRandomSeed(), difficultyRef.current, presetRef.current);
             simRef.current = sim;
             renderer.clearEffects();
             needsStaticRender = true;
@@ -873,33 +1089,47 @@ export function useGameController() {
       rafId = window.requestAnimationFrame(loop);
     };
 
+    if (phaseRef.current === 'playing') {
+      soundEngine.startMusic();
+    }
+
     rafId = window.requestAnimationFrame(loop);
     return () => {
       window.cancelAnimationFrame(rafId);
+      soundEngine.stopMusic();
       ro?.disconnect();
       if (toastTimeoutRef.current !== null) {
         window.clearTimeout(toastTimeoutRef.current);
       }
     };
-  }, [clearPointerInteraction, handleEventsAudio, syncHud]);
+  }, [clearPointerInteraction, handleEventsAudio, recordBattleEvents, syncHud]);
 
   return {
     canvasRef,
     hud,
     muted,
+    musicMuted,
     gameSpeed,
     shortcutsOpen,
     setShortcutsOpen,
+    battleLog,
+    battleLogOpen,
+    supplyMode,
+    timelapseData,
     portraitDismissed,
     setPortraitDismissed,
     toast,
     handleStartFromTitle,
     handleSelectDifficulty,
+    handleSelectMapPreset,
     handlePreviewNewMap,
     handleNewMapInGame,
     handleTogglePause,
     handleReturnTitle,
     handleToggleMute,
+    handleToggleMusic,
+    handleToggleBattleLog,
+    handleToggleSupplyMode,
     handleCycleSpeed,
     handleChangeSendRatio,
     handleCycleSendRatio,

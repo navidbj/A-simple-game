@@ -289,6 +289,42 @@ export function KeyboardIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PortIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
+      <rect x="4" y="4" width="4" height="12" fill="#e2e8f0" />
+      <rect x="4" y="4" width="4" height="3" fill="#fde047" />
+      <rect x="4" y="9" width="4" height="3" fill="#ef4444" />
+      <rect x="3" y="15" width="18" height="3" fill="#9a683a" />
+      <rect x="5" y="18" width="2" height="3" fill="#5c3a1e" />
+      <rect x="11" y="18" width="2" height="3" fill="#5c3a1e" />
+      <rect x="17" y="18" width="2" height="3" fill="#5c3a1e" />
+      <path d="M13 6V14M13 6L19 10L13 13V6Z" fill="#38bdf8" />
+    </svg>
+  );
+}
+
+export function LogScrollIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
+      <rect x="5" y="3" width="14" height="18" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="8" y="7" width="8" height="2" fill="currentColor" />
+      <rect x="8" y="11" width="8" height="2" fill="currentColor" />
+      <rect x="8" y="15" width="5" height="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function SupplyLineIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
+      <rect x="3" y="10" width="4" height="4" fill="currentColor" />
+      <rect x="9" y="10" width="4" height="4" fill="currentColor" />
+      <path d="M15 7L21 12L15 17V7Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function BuildingIcon({
   type,
   className = 'w-5 h-5 shrink-0',
@@ -299,6 +335,7 @@ export function BuildingIcon({
   if (type === 'barracks') return <BarracksIcon className={className} />;
   if (type === 'tower') return <GuardTowerIcon className={className} />;
   if (type === 'mine') return <GoldMineIcon className={className} />;
+  if (type === 'port') return <PortIcon className={className} />;
   return <WarForgeIcon className={className} />;
 }
 

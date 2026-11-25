@@ -2,6 +2,8 @@ export type FactionId = -1 | 0 | 1 | 2 | 3 | 4 | 5;
 
 export type BuildingType = 'barracks' | 'tower' | 'mine' | 'forge' | 'port';
 
+export type BuildingLevel = 0 | 1 | 2 | 3;
+
 export type BiomeType = 'plain' | 'forest' | 'mountain' | 'fertile';
 
 export type PowerType = 'mobilize' | 'blitz' | 'shield';
@@ -35,6 +37,9 @@ export interface BuildingConfig {
   shortEffect: string;
   description: string;
   cost: number;
+  levelCosts: readonly [number, number, number];
+  levelNames: readonly [string, string, string];
+  levelEffects: readonly [string, string, string];
   hotkey: string;
 }
 
@@ -56,12 +61,41 @@ export interface PowerConfig {
   requiresSelectedOwnCastle: boolean;
 }
 
+export type MapPropKind =
+  | 'tree'
+  | 'pine'
+  | 'cypress'
+  | 'palm'
+  | 'mountain'
+  | 'wheat'
+  | 'windmill'
+  | 'ruin'
+  | 'village'
+  | 'oasis';
+
 export interface MapProp {
-  kind: 'tree' | 'pine' | 'mountain' | 'wheat';
+  kind: MapPropKind;
   x: number;
   y: number;
   variant: number;
   territoryId: number;
+}
+
+export interface OceanFeature {
+  kind: 'sea_rock' | 'reef' | 'ship_ambient' | 'sea_creature';
+  x: number;
+  y: number;
+  phase: number;
+  scale: number;
+  dir: number;
+}
+
+export interface CoastSurfPoint {
+  x: number;
+  y: number;
+  nx: number;
+  ny: number;
+  phase: number;
 }
 
 export interface Territory {
@@ -78,6 +112,7 @@ export interface Territory {
   hasMine: boolean;
   hasForge: boolean;
   hasPort: boolean;
+  buildingLevels: Record<BuildingType, BuildingLevel>;
   isCoastal: boolean;
   coastPoint: { x: number; y: number } | null;
   neighbors: number[];
@@ -135,7 +170,15 @@ export interface MapGridData {
   cells: Int16Array;
   /** Elevation / coastal distance value 0..255 for pixel cartography */
   elevation: Uint8Array;
-  /** Procedural pixel biome props (trees, peaks, wheat fields) */
+  /** 0 = dry land/ocean, 1 = river stream, 2 = wide estuary/river */
+  riverMask: Uint8Array;
+  /** Animated sparkle points along procedural rivers */
+  riverSparkles: Array<{ x: number; y: number; phase: number }>;
+  /** Shoreline surf crest anchors for animated wave foam */
+  coastSurf: CoastSurfPoint[];
+  /** Living ocean decorations (sea stacks, coral reefs, merchant boats, sea life) */
+  oceanFeatures: OceanFeature[];
+  /** Procedural pixel biome props (trees, cypress, palms, windmills, ruins, villages, peaks, wheat) */
   props: MapProp[];
   seed: number;
   preset: MapPreset;
@@ -170,6 +213,7 @@ export interface SimEvent {
   isElite?: boolean;
   isNaval?: boolean;
   building?: BuildingType;
+  buildingLevel?: BuildingLevel;
   power?: PowerType;
   capturedByPlayer?: boolean;
 }
@@ -260,6 +304,7 @@ export interface HudSnapshot {
     hasMine: boolean;
     hasForge: boolean;
     hasPort: boolean;
+    buildingLevels: Record<BuildingType, BuildingLevel>;
     isCoastal: boolean;
     shieldTimer: number;
     neighborCount: number;

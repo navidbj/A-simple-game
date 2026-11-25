@@ -1,3 +1,4 @@
+import { BattleLogPanel } from './components/BattleLogPanel';
 import { CommandSidebar } from './components/CommandSidebar';
 import { MobileCommandBar } from './components/MobileCommandBar';
 import { RotatePhoneOverlay } from './components/RotatePhoneOverlay';
@@ -21,10 +22,12 @@ export default function App() {
           hud={game.hud}
           compact={viewport.isCompact}
           muted={game.muted}
+          musicMuted={game.musicMuted}
           gameSpeed={game.gameSpeed}
           onCycleSpeed={game.handleCycleSpeed}
           onOpenShortcuts={() => game.setShortcutsOpen(true)}
           onNewMap={game.handleNewMapInGame}
+          onToggleMusic={game.handleToggleMusic}
           onToggleMute={game.handleToggleMute}
           onTogglePause={game.handleTogglePause}
         />
@@ -35,20 +38,23 @@ export default function App() {
         {game.hud.phase !== 'title' && !viewport.isCompact && (
           <CommandSidebar
             hud={game.hud}
+            supplyMode={game.supplyMode}
             onChangeSendRatio={game.handleChangeSendRatio}
             onBuild={game.handleBuild}
             onTriggerPower={game.handleTriggerPower}
             onRally={game.handleRallySelected}
+            onToggleSupply={game.handleToggleSupplyMode}
             onOpenShortcuts={() => game.setShortcutsOpen(true)}
             onNewMap={game.handleNewMapInGame}
           />
         )}
 
-        {/* Map Canvas Container — 100% unobstructed by any floating panels */}
+        {/* Map Canvas Container */}
         <div
           className="relative flex-1 min-w-0 min-h-0 bg-[#0c1626]"
           data-testid="map-stage"
           data-seed={game.hud.mapSeed}
+          data-preset={game.hud.mapPreset}
           data-speed={game.gameSpeed}
           data-player-territories={game.hud.playerTerritories}
           data-selected-id={game.hud.selectedId ?? ''}
@@ -65,6 +71,16 @@ export default function App() {
             onWheel={game.handleCanvasWheel}
             className="w-full h-full block cursor-pointer touch-none"
           />
+
+          {/* Collapsible Battle Log Panel */}
+          {game.hud.phase !== 'title' && (
+            <BattleLogPanel
+              entries={game.battleLog}
+              open={game.battleLogOpen}
+              compact={viewport.isCompact}
+              onToggle={game.handleToggleBattleLog}
+            />
+          )}
 
           {/* Non-intrusive tactical feedback toast */}
           {game.toast && game.hud.phase === 'playing' && (
@@ -87,10 +103,12 @@ export default function App() {
       {game.hud.phase !== 'title' && viewport.isCompact && (
         <MobileCommandBar
           hud={game.hud}
+          supplyMode={game.supplyMode}
           onCycleSendRatio={game.handleCycleSendRatio}
           onBuild={game.handleBuild}
           onTriggerPower={game.handleTriggerPower}
           onRally={game.handleRallySelected}
+          onToggleSupply={game.handleToggleSupplyMode}
         />
       )}
 
@@ -98,8 +116,10 @@ export default function App() {
       {game.hud.phase === 'title' && (
         <TitleOverlay
           difficulty={game.hud.difficulty}
+          mapPreset={game.hud.mapPreset}
           isShortLandscape={viewport.isShortLandscape}
           onSelectDifficulty={game.handleSelectDifficulty}
+          onSelectMapPreset={game.handleSelectMapPreset}
           onStart={game.handleStartFromTitle}
           onPreviewNewMap={game.handlePreviewNewMap}
         />
@@ -123,6 +143,7 @@ export default function App() {
         stats={game.hud.stats}
         playerTerritories={game.hud.playerTerritories}
         totalTerritories={game.hud.totalTerritories}
+        timelapse={game.timelapseData}
         onResume={game.handleTogglePause}
         onRestartNewMap={game.handleNewMapInGame}
         onReturnTitle={game.handleReturnTitle}
