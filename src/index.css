@@ -15,7 +15,7 @@
     margin: 0;
     padding: 0;
     font-family: var(--font-sans);
-    background-color: #0b1b31;
+    background-color: #0a1a30;
     color: #ede7d9;
     user-select: none;
     -webkit-user-select: none;
@@ -35,6 +35,272 @@
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* ==========================================================================
+   16-BIT SCULPTED STONE, GRAINED OAK WOOD & ROYAL BRASS RPG HUD SYSTEM
+   ========================================================================== */
+
+/* Sculpted weathered ashlar masonry stone outer bezel */
+.hud-stone-frame {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.045) 0px,
+      rgba(255, 255, 255, 0.045) 38px,
+      rgba(8, 10, 14, 0.42) 38px,
+      rgba(8, 10, 14, 0.42) 41px,
+      rgba(255, 255, 255, 0.06) 41px,
+      rgba(255, 255, 255, 0.06) 43px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.03) 0px,
+      rgba(255, 255, 255, 0.03) 14px,
+      rgba(10, 12, 16, 0.18) 14px,
+      rgba(10, 12, 16, 0.18) 16px
+    ),
+    linear-gradient(180deg, #747a85 0%, #585d66 16%, #41454d 78%, #2a2d34 100%);
+  border: 3px solid #13151a;
+  box-shadow:
+    inset 0 2px 0 rgba(226, 232, 240, 0.38),
+    inset 0 -3px 0 rgba(14, 16, 22, 0.8),
+    inset 2px 0 0 rgba(203, 213, 225, 0.22),
+    inset -2px 0 0 rgba(14, 16, 22, 0.6),
+    0 7px 14px rgba(3, 8, 18, 0.72);
+}
+
+/* Deeply carved charcoal-slate stone cavity */
+.hud-stone-inset {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.015) 0px,
+      rgba(255, 255, 255, 0.015) 24px,
+      rgba(0, 0, 0, 0.12) 24px,
+      rgba(0, 0, 0, 0.12) 26px
+    ),
+    linear-gradient(180deg, #252830 0%, #343842 52%, #2c3038 100%);
+  border: 2px solid #14161c;
+  box-shadow:
+    inset 0 3px 5px rgba(8, 10, 14, 0.72),
+    inset 0 -1px 0 rgba(226, 232, 240, 0.16);
+}
+
+/* Rich grained walnut & aged oak interior plank tray */
+.hud-wood-tray {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 214, 153, 0.04) 0px,
+      rgba(255, 214, 153, 0.04) 5px,
+      rgba(12, 6, 2, 0.16) 5px,
+      rgba(12, 6, 2, 0.16) 9px,
+      rgba(255, 198, 128, 0.025) 9px,
+      rgba(255, 198, 128, 0.025) 14px
+    ),
+    linear-gradient(180deg, #4b3221 0%, #372316 48%, #27180e 100%);
+  border: 2px solid #150c07;
+  box-shadow:
+    inset 0 2px 0 rgba(204, 148, 92, 0.28),
+    inset 0 -2px 0 rgba(10, 5, 2, 0.82);
+}
+
+/* Tactile beveled carved-wood tile with warm bronze rim & WCAG focus ring */
+.hud-wood-btn {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 224, 178, 0.09) 0%,
+      rgba(255, 224, 178, 0) 28%
+    ),
+    linear-gradient(180deg, #694830 0%, #523622 48%, #3c2617 100%);
+  border: 2px solid #160d07;
+  box-shadow:
+    inset 0 2px 0 rgba(235, 189, 134, 0.36),
+    inset 2px 0 0 rgba(214, 162, 108, 0.2),
+    inset 0 -3px 0 rgba(18, 9, 4, 0.82),
+    inset -2px 0 0 rgba(18, 9, 4, 0.56),
+    0 2px 0 rgba(8, 4, 2, 0.9);
+  transition: transform 90ms ease, filter 120ms ease, border-color 120ms ease, box-shadow 140ms ease;
+}
+
+.hud-wood-btn:hover:not(:disabled) {
+  filter: brightness(1.13);
+  border-color: #eab308;
+  box-shadow:
+    inset 0 2px 0 rgba(254, 240, 138, 0.48),
+    inset 0 -3px 0 rgba(24, 12, 5, 0.82),
+    0 0 10px rgba(234, 179, 8, 0.28);
+}
+
+.hud-wood-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 3px rgba(14, 7, 3, 0.82),
+    inset 0 -1px 0 rgba(226, 178, 122, 0.22);
+}
+
+.hud-wood-btn:focus-visible,
+.hud-gold-tile:focus-visible,
+.hud-focus-ring:focus-visible {
+  outline: 2px solid #fde047;
+  outline-offset: 2px;
+  z-index: 25;
+}
+
+.hud-wood-btn:disabled {
+  background: linear-gradient(180deg, #3b2a1f 0%, #2e2017 55%, #241811 100%);
+  border-color: #19100a;
+  box-shadow:
+    inset 0 1px 0 rgba(160, 124, 92, 0.14),
+    inset 0 -2px 0 rgba(12, 7, 4, 0.72);
+}
+
+/* Ready-to-build / ready-to-upgrade warm amber rim highlight */
+.hud-wood-btn-ready {
+  border-color: #ca8a04;
+  box-shadow:
+    inset 0 2px 0 rgba(254, 240, 138, 0.42),
+    inset 0 -3px 0 rgba(24, 12, 4, 0.82),
+    0 0 8px rgba(234, 179, 8, 0.22);
+}
+
+/* Upgraded building wood button (Lv.1 / Lv.2 inlaid bronze-emerald oak) */
+.hud-wood-btn-upgraded {
+  background: linear-gradient(180deg, #4f4225 0%, #3d301a 50%, #2c2111 100%);
+  border: 2px solid #b88c34;
+  box-shadow:
+    inset 0 2px 0 rgba(250, 214, 120, 0.4),
+    inset 0 -3px 0 rgba(20, 14, 6, 0.82),
+    0 2px 0 rgba(10, 6, 3, 0.88);
+}
+
+/* Maxed Lv.3 building button (Royal Gilded Gold Oak) */
+.hud-wood-btn-maxed {
+  background: linear-gradient(180deg, #7c5b1b 0%, #593e10 52%, #3d2808 100%);
+  border: 2px solid #facc15;
+  box-shadow:
+    inset 0 2px 0 rgba(254, 249, 195, 0.58),
+    inset 0 -3px 0 rgba(48, 30, 5, 0.85),
+    0 0 12px rgba(250, 204, 21, 0.34);
+}
+
+/* Emerald / Crimson / Teal Tactical Mini-Button Variants */
+.hud-wood-emerald {
+  background: linear-gradient(180deg, #27533c 0%, #1d402d 52%, #152e20 100%);
+  border-color: #34d399;
+}
+
+.hud-wood-crimson {
+  background: linear-gradient(180deg, #6e2624 0%, #551b1a 52%, #3e1211 100%);
+  border-color: #f87171;
+}
+
+/* Iconic Bright Gold Ornate Send Ratio Medallion ("50% اعزام") */
+.hud-gold-tile {
+  background: linear-gradient(180deg, #fef08a 0%, #f5b924 44%, #d4790f 100%);
+  border: 3px solid #593308;
+  box-shadow:
+    inset 0 2px 0 #fefce8,
+    inset 2px 0 0 rgba(254, 249, 195, 0.78),
+    inset 0 -3px 0 #92400e,
+    inset -2px 0 0 rgba(146, 64, 14, 0.68),
+    0 0 0 1px #fcd34d,
+    0 4px 14px rgba(245, 158, 11, 0.36);
+  transition: transform 90ms ease, filter 120ms ease;
+}
+
+.hud-gold-tile:hover {
+  filter: brightness(1.06);
+}
+
+.hud-gold-tile:active {
+  transform: translateY(1px);
+}
+
+/* Radiant Electric-Blue & Gold Highlighted Power Tile ("یورش" / Active Shield) */
+.hud-power-radiant {
+  background: radial-gradient(
+    circle at 50% 40%,
+    rgba(125, 211, 252, 0.58) 0%,
+    rgba(37, 99, 235, 0.48) 44%,
+    #253754 78%,
+    #1a2335 100%
+  );
+  border: 2px solid #fde047;
+  box-shadow:
+    inset 0 0 14px rgba(186, 230, 253, 0.62),
+    inset 0 2px 0 rgba(254, 249, 195, 0.78),
+    0 0 16px rgba(56, 189, 248, 0.6),
+    0 0 5px rgba(253, 224, 71, 0.78);
+}
+
+/* Engraved dark-brass corner hotkey cap */
+.hud-keycap {
+  background: #1d120a;
+  border: 1px solid #6e4e32;
+  color: #e2c799;
+  box-shadow: inset 0 1px 0 rgba(255, 228, 179, 0.16);
+}
+
+/* Carved dark wood groove separator with brass stud */
+.hud-wood-divider {
+  width: 7px;
+  background: linear-gradient(90deg, #160d07 0%, #573b27 48%, #160d07 100%);
+  box-shadow: inset 0 1px 0 rgba(226, 178, 122, 0.22);
+}
+
+/* Embossed Golden Display Wordmark ("فتح قلمرو") */
+.hud-gold-wordmark {
+  color: #fef08a;
+  text-shadow:
+    0 2px 0 #8a4607,
+    0 4px 0 #3f1d04,
+    2px 0 0 #3f1d04,
+    -2px 0 0 #3f1d04,
+    0 -1px 0 #3f1d04,
+    0 0 18px rgba(251, 191, 36, 0.52);
+}
+
+/* Crisp pixel outline shadow for top-right "قلمرو 1/16" readout */
+.hud-pixel-outline {
+  text-shadow:
+    0 2px 0 #08101e,
+    2px 0 0 #08101e,
+    -2px 0 0 #08101e,
+    0 -1px 0 #08101e,
+    0 4px 10px rgba(0, 0, 0, 0.72);
+}
+
+/* Wooden vertical map-table side rail with brass tack bands */
+.hud-side-rail {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 224, 166, 0.08) 0px,
+      rgba(255, 224, 166, 0.08) 2px,
+      transparent 2px,
+      transparent 64px
+    ),
+    linear-gradient(90deg, #1b100a 0%, #4f3320 38%, #63412a 56%, #28170e 100%);
+  box-shadow:
+    inset 1px 0 0 rgba(226, 178, 122, 0.28),
+    inset -1px 0 0 rgba(10, 6, 3, 0.88);
+}
+
+@keyframes hud-subtle-pulse {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.hud-pulse-soft {
+  animation: hud-subtle-pulse 2.2s ease-in-out infinite;
 }
 
 @keyframes phone-rotate-hint {

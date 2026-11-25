@@ -57,12 +57,23 @@ function evaluateLandMask(
   waves: WaveParams,
   preset: MapPreset
 ): number {
-  const nx = (x - w * 0.5) / (w * 0.44);
-  const ny = (y - h * 0.5) / (h * 0.43);
+  const nx = (x - w * 0.5) / (w * 0.455);
+  const ny = (y - h * 0.5) / (h * 0.44);
+
+  // Smooth quadratic coastal safety margin so peninsulas stay organically rounded and never flatten at canvas edges
+  const edgePadX = 72;
+  const edgePadY = 38;
+  const distToEdgeX = Math.min(x, w - x);
+  const distToEdgeY = Math.min(y, h - y);
+  const tx = Math.max(0, (edgePadX - distToEdgeX) / edgePadX);
+  const ty = Math.max(0, (edgePadY - distToEdgeY) / edgePadY);
+  const borderDrop = tx * tx * 1.9 + ty * ty * 1.9;
 
   const organicRipple =
     0.055 * Math.sin(nx * 4.2 + waves.p1) * Math.cos(ny * 3.8 + waves.p2) +
     0.035 * Math.cos((nx - ny) * 5.6 + waves.p3);
+
+  let value: number;
 
   if (preset === 'archipelago') {
     // 5 distinctly separated lush islands (4 major quadrant islands + 1 strategic central jewel island)
@@ -74,10 +85,8 @@ function evaluateLandMask(
     const se = islandField(nx, ny, 0.6 + jitterB, 0.5 - jitterA, 0.36, 0.35, 0.18);
     const center = islandField(nx, ny, jitterA * 0.4, jitterB * 0.4, 0.22, 0.21, 0.1);
     const base = Math.max(nw, ne, sw, se, center);
-    return base + organicRipple * 0.68;
-  }
-
-  if (preset === 'strait') {
+    value = base + organicRipple * 0.68;
+  } else if (preset === 'strait') {
     // Two large twin continents (West & East) joined by a bloody central land strait
     const west = islandField(nx, ny, -0.58, 0.02, 0.46, 0.86, 0.06);
     const east = islandField(nx, ny, 0.58, -0.02, 0.46, 0.86, -0.06);
@@ -88,10 +97,8 @@ function evaluateLandMask(
     const northCut = Math.exp(-((nx * nx) / 0.035 + ((ny + 0.62) * (ny + 0.62)) / 0.14));
     const southCut = Math.exp(-((nx * nx) / 0.035 + ((ny - 0.62) * (ny - 0.62)) / 0.14));
     const base = Math.max(west, east, isthmus) - 0.42 * (northCut + southCut);
-    return base + organicRipple;
-  }
-
-  if (preset === 'middle_east') {
+    value = base + organicRipple;
+  } else if (preset === 'middle_east') {
     // Stylized pixel-art Middle East: Anatolia, Iranian Plateau, Levant, Arabian Peninsula,
     // Egypt/Nile west bank — with open Persian Gulf, open Red Sea, Mediterranean & Caspian Sea!
     const anatolia = islandField(nx, ny, -0.45, -0.58, 0.48, 0.31, -0.08);
@@ -116,18 +123,20 @@ function evaluateLandMask(
     if (medSea > 0) land -= medSea * 1.45;
     if (caspian > 0) land -= caspian * 1.4;
 
-    return land + organicRipple * 0.65;
+    value = land + organicRipple * 0.65;
+  } else {
+    // Default: 'continent' (Classic organic single landmass)
+    const dist = Math.hypot(nx, ny);
+    const angle = Math.atan2(ny, nx);
+    const coastMod =
+      0.13 * Math.sin(angle * 3 + waves.p1) +
+      0.08 * Math.cos(angle * 5 + waves.p2) +
+      0.05 * Math.sin(angle * 7 + waves.p3) +
+      0.04 * Math.sin(nx * 3.8 + waves.p4) * Math.cos(ny * 3.4 + waves.a1);
+    value = 0.96 + coastMod - dist;
   }
 
-  // Default: 'continent' (Classic organic single landmass)
-  const dist = Math.hypot(nx, ny);
-  const angle = Math.atan2(ny, nx);
-  const coastMod =
-    0.13 * Math.sin(angle * 3 + waves.p1) +
-    0.08 * Math.cos(angle * 5 + waves.p2) +
-    0.05 * Math.sin(angle * 7 + waves.p3) +
-    0.04 * Math.sin(nx * 3.8 + waves.p4) * Math.cos(ny * 3.4 + waves.a1);
-  return 0.98 + coastMod - dist;
+  return value - borderDrop;
 }
 
 /** Deterministic smooth domain warp for organic nation borders */

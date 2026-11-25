@@ -71,6 +71,9 @@ export class GameRenderer {
   private bgCtx: CanvasRenderingContext2D;
   private overlayCanvas: HTMLCanvasElement;
   private overlayCtx: CanvasRenderingContext2D;
+  private viewportBackdropCanvas: HTMLCanvasElement;
+  private viewportBackdropCtx: CanvasRenderingContext2D;
+  private cachedBackdropKey = '';
   private bgImageData: ImageData;
   private cachedMapSeed: number | null = null;
   private cachedCellsRef: Int16Array | null = null;
@@ -121,6 +124,10 @@ export class GameRenderer {
     this.overlayCanvas.height = WORLD_HEIGHT;
     this.overlayCtx = this.overlayCanvas.getContext('2d')!;
     this.overlayCtx.imageSmoothingEnabled = false;
+
+    this.viewportBackdropCanvas = document.createElement('canvas');
+    this.viewportBackdropCtx = this.viewportBackdropCanvas.getContext('2d')!;
+    this.viewportBackdropCtx.imageSmoothingEnabled = false;
 
     this.atlas = new PixelSpriteAtlas();
     this.vfx = new ParticleSystem();
@@ -261,10 +268,7 @@ export class GameRenderer {
       this.overlayCtx.clearRect(0, 0, width, height);
       this.overlayCtx.imageSmoothingEnabled = false;
 
-      // 1. Subtle Cartographic Sea Chart Rhumb Lines & Astrolabe Grid (painted strictly on open water)
-      this.drawSeaChartGrid(this.overlayCtx, map);
-
-      // 2. Ocean Coral Reefs & Rocky Sea Stacks
+      // 1. Ocean Coral Reefs & Rocky Sea Stacks (full-viewport nautical chart grid is drawn seamlessly in render())
       for (const feat of oceanFeatures) {
         if (feat.kind === 'reef') {
           this.drawCoralReef(this.overlayCtx, feat.x, feat.y, feat.scale, preset);
@@ -384,14 +388,7 @@ export class GameRenderer {
         );
       }
 
-      // 5. Ornate 16-Bit Persian Cartographic Compass Rose, Brass Map Frame & Baked Warm NW Sunlight Wash
-      this.drawPixelCompass(this.overlayCtx, 68, height - 66);
-      this.drawCartographicFrame(this.overlayCtx, width, height);
-      const sunGrad = this.overlayCtx.createRadialGradient(130, 90, 20, 180, 120, 560);
-      sunGrad.addColorStop(0, 'rgba(255, 224, 150, 0.065)');
-      sunGrad.addColorStop(1, 'rgba(255, 224, 150, 0)');
-      this.overlayCtx.fillStyle = sunGrad;
-      this.overlayCtx.fillRect(0, 0, width, height);
+      // Compass rose & nautical chart grid are drawn in viewport space inside render() so they align flush on any screen ratio
     }
 
     // Preset-specific ocean & terrain warmth tuning
@@ -410,9 +407,10 @@ export class GameRenderer {
         const elev = elevation[idx];
         const dither = BAYER_2X2[gy & 1][gx & 1];
 
-        let r = 14;
-        let g = 29;
-        let b = 52;
+        let r = 10;
+        let g = 26;
+        let b = 48;
+        let a = 255;
 
         if (cellId === -1) {
           // Check if directly south of a landmass to cast a crisp 2.5D island drop shadow into the water
@@ -420,8 +418,19 @@ export class GameRenderer {
           const land2North = gy > 1 && cells[idx - cols * 2] >= 0;
           const land3North = gy > 2 && cells[idx - cols * 3] >= 0;
 
+          // Smooth outer-edge fade so bathymetry dithers invisibly into the full-viewport ocean on every aspect ratio
+          const edgeRatio = Math.min(
+            1,
+            gx / 22,
+            (cols - 1 - gx) / 22,
+            gy / 14,
+            (rows - 1 - gy) / 14
+          );
+          const smoothEdge = edgeRatio * edgeRatio * (3 - 2 * edgeRatio);
+          const effectiveElev = elev * smoothEdge;
+
           // 16-bit stepped turquoise/cobalt ocean with ordered Bayer dithering
-          const val = elev + dither * 5;
+          const val = effectiveElev + dither * 5;
           if (val > 113) {
             r = isArchipelago ? 132 : isMiddleEast ? 130 : 124;
             g = isArchipelago ? 214 : isMiddleEast ? 204 : 198;
@@ -434,34 +443,35 @@ export class GameRenderer {
             r = isArchipelago ? 20 : isStrait ? 19 : 22;
             g = isArchipelago ? 78 : isStrait ? 56 : 64;
             b = isArchipelago ? 112 : isStrait ? 88 : 98;
-          } else if (val > 44) {
+          } else if (val > 46) {
             r = 15;
             g = isArchipelago ? 48 : 42;
             b = isArchipelago ? 80 : 72;
           } else {
-            r = 10;
-            g = 26;
-            b = 48;
+            // Transparent deep ocean — blends invisibly into full-viewport ocean & nautical grid
+            a = 0;
           }
 
           // Apply 2.5D coastal water drop shadow directly under southern cliffs
-          if (land1North) {
-            r = Math.round(r * 0.48);
-            g = Math.round(g * 0.52);
-            b = Math.round(b * 0.6);
-          } else if (land2North) {
-            r = Math.round(r * 0.68);
-            g = Math.round(g * 0.72);
-            b = Math.round(b * 0.78);
-          } else if (land3North && (dither & 1) === 0) {
-            r = Math.round(r * 0.85);
-            g = Math.round(g * 0.87);
-            b = Math.round(b * 0.9);
+          if (a > 0) {
+            if (land1North) {
+              r = Math.round(r * 0.48);
+              g = Math.round(g * 0.52);
+              b = Math.round(b * 0.6);
+            } else if (land2North) {
+              r = Math.round(r * 0.68);
+              g = Math.round(g * 0.72);
+              b = Math.round(b * 0.78);
+            } else if (land3North && (dither & 1) === 0) {
+              r = Math.round(r * 0.85);
+              g = Math.round(g * 0.87);
+              b = Math.round(b * 0.9);
+            }
           }
 
           if (
-            elev < 90 &&
-            elev > 16 &&
+            effectiveElev < 90 &&
+            effectiveElev > 20 &&
             ((gx * 73 + gy * 131 + map.seed) & 511) === 7
           ) {
             this.oceanSparkles.push({
@@ -630,7 +640,7 @@ export class GameRenderer {
             data[rowOffset] = r;
             data[rowOffset + 1] = g;
             data[rowOffset + 2] = b;
-            data[rowOffset + 3] = 255;
+            data[rowOffset + 3] = a;
             rowOffset += 4;
           }
         }
@@ -644,50 +654,37 @@ export class GameRenderer {
     sim.mapDirty = false;
   }
 
-  /** Subtle antique Persian nautical rhumb lines & astrolabe chart grid drawn strictly over open sea */
-  private drawSeaChartGrid(ctx: CanvasRenderingContext2D, map: GameSimulation['map']) {
-    const { width, height, step, cols, rows, cells } = map;
+  /** Full-viewport antique Persian nautical chart grid & rhumb lines drawn seamlessly under the island */
+  private drawViewportSeaChart(ctx: CanvasRenderingContext2D, w: number, h: number) {
     ctx.save();
     ctx.fillStyle = 'rgba(214, 185, 130, 0.065)';
 
-    // Faint dotted latitude/longitude chart grid on ocean cells only
     const spacing = 120;
-    for (let x = spacing; x < width; x += spacing) {
-      const gx = Math.floor(x / step);
-      for (let y = 16; y < height - 16; y += 6) {
-        const gy = Math.floor(y / step);
-        if (gx >= 0 && gy >= 0 && gx < cols && gy < rows && cells[gy * cols + gx] === -1) {
-          ctx.fillRect(x, y, 1, 2);
-        }
+    for (let x = spacing; x < w - 14; x += spacing) {
+      for (let y = 14; y < h - 14; y += 6) {
+        ctx.fillRect(x, y, 1, 2);
       }
     }
-    for (let y = spacing; y < height; y += spacing) {
-      const gy = Math.floor(y / step);
-      for (let x = 16; x < width - 16; x += 6) {
-        const gx = Math.floor(x / step);
-        if (gx >= 0 && gy >= 0 && gx < cols && gy < rows && cells[gy * cols + gx] === -1) {
-          ctx.fillRect(x, y, 2, 1);
-        }
+    for (let y = spacing; y < h - 14; y += spacing) {
+      for (let x = 14; x < w - 14; x += 6) {
+        ctx.fillRect(x, y, 2, 1);
       }
     }
 
-    // Radiating nautical rhumb lines from the Compass Rose across open ocean
-    const cx = 68;
-    const cy = height - 66;
-    const angles = [0, -Math.PI / 6, -Math.PI / 4, -Math.PI / 3, -Math.PI / 2];
+    // Radiating rhumb lines from the bottom-right compass anchor across open sea
+    const cx = w - 54;
+    const cy = h - 54;
+    const angles = [Math.PI, Math.PI * 1.16, Math.PI * 1.25, Math.PI * 1.34, Math.PI * 1.5];
     ctx.fillStyle = 'rgba(214, 185, 130, 0.08)';
+    const maxDist = Math.hypot(w, h);
     for (const ang of angles) {
       const dx = Math.cos(ang);
       const dy = Math.sin(ang);
-      for (let dist = 42; dist < 960; dist += 6) {
+      for (let dist = 38; dist < maxDist; dist += 6) {
         const px = Math.round(cx + dx * dist);
         const py = Math.round(cy + dy * dist);
-        if (px < 12 || py < 12 || px >= width - 12 || py >= height - 12) break;
-        const gx = Math.floor(px / step);
-        const gy = Math.floor(py / step);
-        if (cells[gy * cols + gx] === -1) {
-          ctx.fillRect(px, py, 2, 1);
-        }
+        if (px < 12 || py < 12 || px >= w - 12 || py >= h - 12) break;
+        ctx.fillRect(px, py, 2, 1);
       }
     }
     ctx.restore();
@@ -959,9 +956,42 @@ export class GameRenderer {
     ctx.scale(dpr, dpr);
     ctx.imageSmoothingEnabled = false;
 
-    // Fill outer ocean frame cleanly
-    ctx.fillStyle = '#0b1b31';
-    ctx.fillRect(0, 0, viewW, viewH);
+    // Blit cached full-viewport deep ocean + nautical chart grid + brass frame + compass rose (rebuilt only on resize)
+    const backdropKey = `${Math.round(viewW)}x${Math.round(viewH)}:${isTitleBackdrop ? 1 : 0}`;
+    if (this.cachedBackdropKey !== backdropKey) {
+      this.cachedBackdropKey = backdropKey;
+      const bw = Math.max(1, Math.round(viewW));
+      const bh = Math.max(1, Math.round(viewH));
+      this.viewportBackdropCanvas.width = bw;
+      this.viewportBackdropCanvas.height = bh;
+      const bctx = this.viewportBackdropCtx;
+      bctx.imageSmoothingEnabled = false;
+
+      bctx.fillStyle = '#0a1a30';
+      bctx.fillRect(0, 0, bw, bh);
+      const oceanGlow = bctx.createRadialGradient(
+        bw * 0.5,
+        bh * 0.5,
+        Math.min(bw, bh) * 0.12,
+        bw * 0.5,
+        bh * 0.5,
+        Math.max(bw, bh) * 0.62
+      );
+      oceanGlow.addColorStop(0, 'rgba(22, 62, 102, 0.36)');
+      oceanGlow.addColorStop(0.65, 'rgba(14, 38, 68, 0.16)');
+      oceanGlow.addColorStop(1, 'rgba(10, 26, 48, 0)');
+      bctx.fillStyle = oceanGlow;
+      bctx.fillRect(0, 0, bw, bh);
+
+      this.drawViewportSeaChart(bctx, bw, bh);
+      if (!isTitleBackdrop) {
+        this.drawCartographicFrame(bctx, bw, bh);
+        if (bw >= 720 && bh >= 320) {
+          this.drawPixelCompass(bctx, bw - 54, bh - 54);
+        }
+      }
+    }
+    ctx.drawImage(this.viewportBackdropCanvas, 0, 0, viewW, viewH);
 
     let shakeX = 0;
     let shakeY = 0;

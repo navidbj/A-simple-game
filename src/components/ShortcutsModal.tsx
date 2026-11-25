@@ -1,3 +1,5 @@
+import { StoneBrassStud, StoneCornerVine } from './HudOrnaments';
+
 interface ShortcutsModalProps {
   open: boolean;
   onClose: () => void;
@@ -31,76 +33,83 @@ export function ShortcutsModal({ open, onClose }: ShortcutsModalProps) {
       aria-modal="true"
       aria-labelledby="shortcuts-modal-title"
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#070d17]/82"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060c18]/84"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg max-h-[88dvh] overflow-y-auto bg-[#101827] border-2 border-[#d6b472]/45 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.85)]"
+        className="relative w-full max-w-lg max-h-[88dvh] hud-stone-frame p-1.5"
       >
-        <div className="flex items-center justify-between pb-3 border-b border-[#25354f]">
-          <div>
-            <h2 id="shortcuts-modal-title" className="text-base font-black text-[#f6efe0]">
-              کلیدهای میانبر و فرماندهی سریع
-            </h2>
-            <p className="text-[11px] text-[#94a3b8] mt-0.5">
-              تمامی کلیدها با کیبورد فارسی و انگلیسی بدون نیاز به تغییر زبان کار می‌کنند.
-            </p>
+        <StoneCornerVine className="absolute -top-1.5 -left-1.5 w-10 h-9 z-20" />
+        <StoneCornerVine flipX className="absolute -top-1.5 -right-1.5 w-10 h-9 z-20" />
+        <StoneBrassStud className="absolute bottom-1 left-1 w-2.5 h-2.5 z-20" />
+        <StoneBrassStud className="absolute bottom-1 right-1 w-2.5 h-2.5 z-20" />
+
+        <div className="hud-wood-tray max-h-[calc(88dvh-16px)] overflow-y-auto p-5">
+          <div className="flex items-center justify-between pb-3 border-b border-[#573b27]/70">
+            <div>
+              <h2 id="shortcuts-modal-title" className="text-base font-black text-[#fef08a]">
+                کلیدهای میانبر و فرماندهی سریع
+              </h2>
+              <p className="text-[11px] text-[#d6c5ad] mt-0.5">
+                تمامی کلیدها با کیبورد فارسی و انگلیسی بدون نیاز به تغییر زبان کار می‌کنند.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="بستن راهنمای کلیدها"
+              className="min-w-[40px] min-h-[40px] hud-wood-btn text-[#fef3c7] font-black text-sm cursor-pointer"
+            >
+              ✕
+            </button>
           </div>
+
+          <div className="mt-4 space-y-4">
+            <section>
+              <h3 className="text-xs font-extrabold text-[#f3bd59] mb-2">
+                حرکات سریع ماوس و لمسی
+              </h3>
+              <div className="space-y-1.5">
+                {MOUSE_TOUCH_ITEMS.map((item) => (
+                  <div
+                    key={item.trigger}
+                    className="flex items-center justify-between gap-3 hud-stone-inset px-3 py-2 text-xs"
+                  >
+                    <span className="font-bold text-[#fef3c7] shrink-0">{item.trigger}</span>
+                    <span className="text-[#d6cbb8] text-left">{item.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="text-xs font-extrabold text-[#f3bd59] mb-2">
+                میانبرهای صفحه‌کلید
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {KEYBOARD_ITEMS.map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-center justify-between gap-2 hud-stone-inset px-2.5 py-2 text-[11px]"
+                  >
+                    <span className="text-[#ede2cf]">{item.desc}</span>
+                    <kbd className="hud-keycap font-num px-1.5 py-0.5 font-bold shrink-0">
+                      {item.key}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
           <button
             type="button"
             onClick={onClose}
-            aria-label="بستن راهنمای کلیدها"
-            className="min-w-[36px] min-h-[36px] bg-[#1a263b] hover:bg-[#243452] border-2 border-[#334866] text-[#e2e8f0] font-bold text-sm cursor-pointer"
+            className="mt-5 w-full min-h-[44px] py-2 hud-gold-tile text-[#1d1206] font-black text-xs cursor-pointer"
           >
-            ✕
+            متوجه شدم
           </button>
         </div>
-
-        <div className="mt-4 space-y-4">
-          <section>
-            <h3 className="text-xs font-extrabold text-[#d6b472] mb-2">
-              حرکات سریع ماوس و لمسی
-            </h3>
-            <div className="space-y-1.5">
-              {MOUSE_TOUCH_ITEMS.map((item) => (
-                <div
-                  key={item.trigger}
-                  className="flex items-center justify-between gap-3 bg-[#152033] border border-[#24344d] px-3 py-2 text-xs"
-                >
-                  <span className="font-bold text-[#f2e8d5] shrink-0">{item.trigger}</span>
-                  <span className="text-[#a8b6c9] text-left">{item.desc}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section>
-            <h3 className="text-xs font-extrabold text-[#d6b472] mb-2">
-              میانبرهای صفحه‌کلید
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-              {KEYBOARD_ITEMS.map((item) => (
-                <div
-                  key={item.key}
-                  className="flex items-center justify-between gap-2 bg-[#152033] border border-[#24344d] px-2.5 py-2 text-[11px]"
-                >
-                  <span className="text-[#cbd5e1]">{item.desc}</span>
-                  <kbd className="font-num px-1.5 py-0.5 bg-[#0b1220] border border-[#364d70] text-[#fde68a] font-bold shrink-0">
-                    {item.key}
-                  </kbd>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-5 w-full min-h-[42px] py-2 bg-[#c99846] hover:bg-[#b58636] text-[#0c1320] font-extrabold text-xs transition-colors cursor-pointer"
-        >
-          متوجه شدم
-        </button>
       </div>
     </div>
   );

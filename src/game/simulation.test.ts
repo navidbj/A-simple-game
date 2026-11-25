@@ -114,7 +114,7 @@ test('War Forge grants +25% attack power and elite status to dispatched troops',
   assert.equal(sim.troops[0].attackMultiplier, ECONOMY.FORGE_ATTACK_MULTIPLIER);
   assert.equal(sim.troops[0].isElite, true);
 
-  for (let i = 0; i < 140 && sim.troops.length > 0; i++) {
+  for (let i = 0; i < 140 && sim.troops.some((tr) => tr.owner === 0); i++) {
     stepSimulation(sim, 0.05, false);
   }
   assert.equal(target.owner, 0, 'Forge +25% attack bonus should break through 22 defenders');

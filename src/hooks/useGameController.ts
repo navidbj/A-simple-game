@@ -1133,6 +1133,8 @@ export function useGameController() {
     handleCycleSpeed,
     handleChangeSendRatio,
     handleCycleSendRatio,
+    handleCycleCastle,
+    handleQuickAttackSpace,
     handleRallySelected,
     handleBuild,
     handleTriggerPower,

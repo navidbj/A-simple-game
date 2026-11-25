@@ -10,8 +10,8 @@ import type {
   PowerType,
 } from './types';
 
-export const WORLD_WIDTH = 1080;
-export const WORLD_HEIGHT = 720;
+export const WORLD_WIDTH = 1452;
+export const WORLD_HEIGHT = 684;
 /** 3px crisp pixel-art texel grid for authentic retro 16-bit strategy world look */
 export const GRID_STEP = 3;
 export const TERRITORY_COUNT = 16;
