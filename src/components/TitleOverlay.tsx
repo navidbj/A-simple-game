@@ -41,7 +41,7 @@ export function TitleOverlay({
             <CitadelCrestSvg className="w-14 h-14 mb-1.5 drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]" />
             <h1 className="text-2xl font-black tracking-tight text-[#f6efe0]">فتح قلمرو</h1>
             <p className="mt-1 text-[10px] text-[#b8c4d4] leading-relaxed">
-              ۶ کشور رقیب · نبرد مرزی و دریایی
+              ۶ کشور رقیب · نبرد استراتژیک مرزی
             </p>
           </div>
 
@@ -162,7 +162,7 @@ export function TitleOverlay({
         </h1>
 
         <p className="mt-2 text-xs md:text-sm text-[#b8c4d4] max-w-md leading-relaxed">
-          ۶ کشور رقیب در نقشه پیکسلی — دژ و بندرگاه بسازید، خطوط تأمین و یورش دریایی برقرار کنید و لشکریان خود را از مرزها بگذرانید.
+          ۶ کشور رقیب در نقشه پیکسلی — دژ و بندرگاه بسازید، خطوط تأمین برقرار کنید و لشکریان خود را از مرزها بگذرانید.
         </p>
 
         {/* Map Preset Selector */}
@@ -262,7 +262,7 @@ export function TitleOverlay({
 
       {/* Flat Borderless Single-Line Control Hint */}
       <div className="mt-3 text-xs text-[#9eb0c7] tracking-normal text-center shrink-0">
-        کشیدن برای حمله یا یورش دریایی · Shift+کلیک خط تأمین · دابل‌کلیک فراخوانی کمکی · کلید H راهنما
+        کشیدن برای حمله · Shift+کلیک خط تأمین · دابل‌کلیک فراخوانی کمکی · کلید H راهنما
       </div>
     </div>
   );

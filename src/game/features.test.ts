@@ -8,7 +8,6 @@ import {
   canDispatchTo,
   clearSupplyRoute,
   computeBattleIntensity,
-  computeNavalRoute,
   createInitialMatch,
   dispatchTroops,
   getBuildingLevel,
@@ -238,11 +237,11 @@ test('All 4 Map Presets generate 16 connected territories, 6 capitals, coastal p
   }
 });
 
-test('Port requires coastal castle and unlocks cross-sea Naval Raids with over-water route and conquest', () => {
+test('Port requires coastal castle, boosts manpower growth & capacity across Lv.1 -> Lv.3, and naval raids are disabled', () => {
   const sim = createInitialMatch(24681, 'normal', 'archipelago');
   const coastalOrigin = sim.territories.find((t) => t.isCoastal)!;
   coastalOrigin.owner = 0;
-  coastalOrigin.military = 95;
+  coastalOrigin.military = 200;
 
   // Find a non-adjacent coastal target across the sea
   const navalTarget = sim.territories.find(
@@ -255,9 +254,6 @@ test('Port requires coastal castle and unlocks cross-sea Naval Raids with over-w
   navalTarget.owner = 2;
   navalTarget.military = 10;
 
-  // Before building a Port, cannot dispatch to non-adjacent coastal castle
-  assert.equal(canDispatchTo(sim, coastalOrigin.id, navalTarget.id).allowed, false);
-
   // Inland castle (simulate by setting isCoastal = false) cannot build Port
   const inlandTest = sim.territories.find((t) => t.id !== coastalOrigin.id && t.id !== navalTarget.id)!;
   inlandTest.owner = 0;
@@ -265,52 +261,31 @@ test('Port requires coastal castle and unlocks cross-sea Naval Raids with over-w
   inlandTest.isCoastal = false;
   assert.equal(canBuildStructure(inlandTest, 'port'), false);
 
-  // Coastal castle CAN build Port
+  // Coastal castle CAN build Port and upgrades boost manpower growth & max capacity monotonically
+  const r0 = getTerritoryRates(coastalOrigin);
   assert.equal(canBuildStructure(coastalOrigin, 'port'), true);
   const buildEvents: SimEvent[] = [];
   assert.equal(buildStructure(sim, coastalOrigin.id, 'port', 0, buildEvents), true);
   assert.equal(coastalOrigin.hasPort, true);
   assert.equal(buildEvents.some((e) => e.type === 'build' && e.building === 'port'), true);
+  const r1 = getTerritoryRates(coastalOrigin);
+  assert.ok(r1.manpowerRate > r0.manpowerRate && r1.maxManpower > r0.maxManpower);
 
-  // Now cross-sea Naval Raid is allowed and flagged isNaval: true
+  assert.equal(buildStructure(sim, coastalOrigin.id, 'port', 0, buildEvents), true);
+  const r2 = getTerritoryRates(coastalOrigin);
+  assert.ok(r2.manpowerRate > r1.manpowerRate && r2.maxManpower > r1.maxManpower);
+
+  assert.equal(buildStructure(sim, coastalOrigin.id, 'port', 0, buildEvents), true);
+  const r3 = getTerritoryRates(coastalOrigin);
+  assert.ok(r3.manpowerRate > r2.manpowerRate && r3.maxManpower > r2.maxManpower);
+
+  // Cross-sea Naval Raids are disabled even with a Port
   const check = canDispatchTo(sim, coastalOrigin.id, navalTarget.id);
-  assert.equal(check.allowed, true);
-  assert.equal(check.isNaval, true);
-
-  // Naval route should produce valid start/via/target waypoints
-  const route = computeNavalRoute(sim, coastalOrigin, navalTarget);
-  assert.ok(Number.isFinite(route.viaX) && Number.isFinite(route.viaY));
-
-  // Dispatch Naval Raid and verify warship troop + Battle Log dispatch event
-  const launchEvents: SimEvent[] = [];
-  const res = dispatchTroops(sim, coastalOrigin.id, navalTarget.id, 0.75, 0, launchEvents);
-  assert.equal(res.ok, true);
-  assert.equal(res.isNaval, true);
-  assert.equal(sim.troops.some((tr) => tr.isNaval && tr.toId === navalTarget.id), true);
-  assert.equal(launchEvents.some((e) => e.type === 'dispatch' && e.isNaval), true);
-
-  const launchLog = buildBattleLogEntries(launchEvents, 30, { current: 1 });
-  assert.ok(
-    launchLog.some((entry) => entry.text.includes('ناوگان دریایی')),
-    'Battle log should record player naval fleet launch'
-  );
-
-  // Step simulation until warship reaches target and conquers it
-  navalTarget.hasPort = true;
-  const arrivalEvents: SimEvent[] = [];
-  for (let i = 0; i < 360; i++) {
-    const stepEvs = stepSimulation(sim, 0.05, false, 1.0);
-    arrivalEvents.push(...stepEvs);
-    if (sim.territories[navalTarget.id].owner === 0) break;
-  }
-
-  assert.equal(sim.territories[navalTarget.id].owner, 0, 'Naval raid should capture coastal castle');
-  assert.equal(sim.territories[navalTarget.id].hasPort, false, 'Captured castle resets Port');
-  assert.equal(
-    arrivalEvents.some((e) => e.type === 'capture' && e.isNaval && e.capturedByPlayer),
-    true,
-    'Capture event should carry isNaval flag'
-  );
+  assert.equal(check.allowed, false);
+  assert.equal(check.reason, 'not_neighbor');
+  const res = dispatchTroops(sim, coastalOrigin.id, navalTarget.id, 0.75, 0);
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, 'not_neighbor');
 });
 
 test('Upgraded cartographic map generates rivers, surf, ocean life on water, and rich landmarks across all presets', () => {
@@ -445,24 +420,20 @@ test('All 5 buildings upgrade cleanly across Lv.1 -> Lv.2 -> Lv.3 with scaling s
   const d3 = previewAttackOutcome(sim, home.id, neighbor.id, 0.5)!.defenseBonusPct;
   assert.ok(d1 < d2 && d2 < d3 && d3 >= 60);
 
-  // 5. Port Lv.1 -> Lv.3 boosts naval warship speed and Lv.3 naval attack multiplier
-  const navalTarget = sim.territories.find(
-    (t) => t.id !== home.id && t.isCoastal && !home.neighbors.includes(t.id)
-  )!;
-  navalTarget.owner = 2;
-  navalTarget.military = 10;
-
+  // 5. Port Lv.1 -> Lv.3 boosts manpower growth rate and max capacity monotonically
+  const mpRate0 = getTerritoryRates(home).manpowerRate;
+  const mpMax0 = getTerritoryRates(home).maxManpower;
   buildStructure(sim, home.id, 'port', 0);
-  dispatchTroops(sim, home.id, navalTarget.id, 0.1, 0);
-  const ship1 = sim.troops[sim.troops.length - 1];
+  const mpRate1 = getTerritoryRates(home).manpowerRate;
+  const mpMax1 = getTerritoryRates(home).maxManpower;
   buildStructure(sim, home.id, 'port', 0);
-  dispatchTroops(sim, home.id, navalTarget.id, 0.1, 0);
-  const ship2 = sim.troops[sim.troops.length - 1];
+  const mpRate2 = getTerritoryRates(home).manpowerRate;
+  const mpMax2 = getTerritoryRates(home).maxManpower;
   buildStructure(sim, home.id, 'port', 0);
-  dispatchTroops(sim, home.id, navalTarget.id, 0.1, 0);
-  const ship3 = sim.troops[sim.troops.length - 1];
-  assert.ok(ship1.speed < ship2.speed && ship2.speed < ship3.speed);
-  assert.ok(ship3.attackMultiplier > ship2.attackMultiplier);
+  const mpRate3 = getTerritoryRates(home).manpowerRate;
+  const mpMax3 = getTerritoryRates(home).maxManpower;
+  assert.ok(mpRate0 < mpRate1 && mpRate1 < mpRate2 && mpRate2 < mpRate3);
+  assert.ok(mpMax0 < mpMax1 && mpMax1 < mpMax2 && mpMax2 < mpMax3);
 
   // 6. Enemy conquest resets ALL buildingLevels back to 0
   sim.troops = [];
