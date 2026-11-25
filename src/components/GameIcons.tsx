@@ -314,3 +314,25 @@ export function PowerIcon({
   return <ShieldPowerIcon className={className} />;
 }
 
+export function MusicNoteIcon({
+  muted,
+  ...props
+}: SVGProps<SVGSVGElement> & { muted: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M9 18V5l12-2v13"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="6" cy="18" r="3" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="18" cy="16" r="3" stroke="currentColor" strokeWidth="1.8" />
+      {muted && (
+        <path d="M4 4L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      )}
+    </svg>
+  );
+}
+
