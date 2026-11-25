@@ -100,7 +100,8 @@ test('War Forge grants +25% attack power and elite status to dispatched troops',
   const player = sim.territories.find((t) => t.owner === 0)!;
   const target = sim.territories[player.neighbors[0]];
   target.biome = 'plain';
-  target.owner = 1;
+  target.owner = -1;
+  target.manpower = 0;
   target.military = 22;
 
   player.military = 72;
@@ -117,6 +118,106 @@ test('War Forge grants +25% attack power and elite status to dispatched troops',
     stepSimulation(sim, 0.05, false);
   }
   assert.equal(target.owner, 0, 'Forge +25% attack bonus should break through 22 defenders');
+  // 20 Forge troops (25 effective attack) vs 22 defenders -> (25 - 22) / 1.25 = 2.4 survivors
+  assert.ok(
+    Math.abs(target.military - 2.4) < 0.2,
+    `Forge attackers must suffer realistic casualties (expected ~2.4, got ${target.military})`
+  );
+});
+
+test('Stacked Tower + Royal Shield + Mountain defense applies accurate conquest casualties', () => {
+  const sim = createInitialMatch(404, 'normal');
+  const player = sim.territories.find((t) => t.owner === 0)!;
+  const target = sim.territories[player.neighbors[0]];
+  target.biome = 'mountain'; // 0.75x
+  target.owner = 1;
+  target.manpower = 0;
+  target.hasTower = true; // 0.6x
+  target.shieldTimer = 10; // 0.5x => total defenseMult = 0.225
+  target.military = 10;
+
+  player.military = 101;
+  const res = dispatchTroops(sim, player.id, target.id, 1.0, 0);
+  assert.equal(res.sent, 100);
+
+  for (let i = 0; i < 160 && sim.troops.length > 0; i++) {
+    stepSimulation(sim, 0.05, false);
+  }
+  assert.equal(target.owner, 0);
+  // 100 * 0.225 = 22.5 effective attack vs 10 defenders => (22.5 - 10) / 0.225 = 55.56 survivors
+  assert.ok(
+    Math.abs(target.military - 55.555) < 0.2,
+    `Stacked defense should not clamp survivor divisor at 0.4 (expected ~55.56, got ${target.military})`
+  );
+});
+
+test('AI does not launch suicidal partial attacks or ping-pong rear troops between interior castles', () => {
+  const sim = createInitialMatch(606, 'normal');
+  // Put all territories under faction 1 except one distant enemy (0)
+  for (const t of sim.territories) {
+    t.owner = 1;
+    t.military = 10;
+  }
+  const enemy = sim.territories[0];
+  enemy.owner = 0;
+  enemy.biome = 'plain';
+  enemy.military = 20;
+
+  // Give one frontline neighbor 25 troops: 52% wave = 13 < 20 defenders, so AI should hold rather than feed
+  const frontline = sim.territories[enemy.neighbors[0]];
+  frontline.military = 25;
+  frontline.hasMine = true;
+  frontline.hasBarracks = true;
+
+  // Find two non-frontline rear castles at distance >= 2 from enemy (if map has depth >= 2)
+  const rearCastles = sim.territories.filter(
+    (t) =>
+      t.owner === 1 &&
+      t.id !== frontline.id &&
+      !t.neighbors.includes(enemy.id)
+  );
+  for (const r of rearCastles) {
+    r.military = 26;
+    r.hasMine = true;
+    r.hasBarracks = true;
+    r.hasTower = true;
+    r.hasForge = true;
+  }
+
+  const events: SimEvent[] = [];
+  evaluateAI(sim, events, false);
+
+  const suicidalAttack = events.find(
+    (e) => e.type === 'dispatch' && e.x === frontline.x && e.y === frontline.y
+  );
+  assert.equal(suicidalAttack, undefined, 'AI should not send 13 troops into 20 defenders');
+
+  // Verify any rear dispatch strictly moves closer to the frontline (no same-tier ping-pong)
+  const dist = new Map<number, number>();
+  const q: number[] = [];
+  for (const t of sim.territories) {
+    if (t.owner === 1 && t.neighbors.includes(enemy.id)) {
+      dist.set(t.id, 0);
+      q.push(t.id);
+    }
+  }
+  for (let i = 0; i < q.length; i++) {
+    const cur = q[i];
+    for (const nId of sim.territories[cur].neighbors) {
+      if (sim.territories[nId].owner === 1 && !dist.has(nId)) {
+        dist.set(nId, dist.get(cur)! + 1);
+        q.push(nId);
+      }
+    }
+  }
+  for (const tr of sim.troops) {
+    if (tr.owner === 1 && tr.toId !== enemy.id) {
+      assert.ok(
+        (dist.get(tr.toId) ?? 99) < (dist.get(tr.fromId) ?? 0),
+        'Rear supply troops must move strictly closer to the frontline'
+      );
+    }
+  }
 });
 
 test('Commander Powers (Mobilize, Blitz, Royal Shield) apply effects and enforce cooldowns', () => {

@@ -5,7 +5,6 @@ import {
   DIFFICULTIES,
   ECONOMY,
   FACTIONS,
-  TERRITORY_COUNT,
 } from './constants';
 import { createRng, generateOrganicMap } from './mapGenerator';
 import type {
@@ -14,22 +13,18 @@ import type {
   FactionId,
   FactionPowerEntry,
   GameOutcome,
+  GamePhase,
   GameSimulation,
-  MapPreset,
+  HudSnapshot,
   PowerType,
   SimEvent,
   Territory,
 } from './types';
 
-export function createInitialMatch(
-  seed: number,
-  difficulty: Difficulty,
-  preset: MapPreset = 'continent'
-): GameSimulation {
-  const { map, territories } = generateOrganicMap(seed, TERRITORY_COUNT, preset);
+export function createInitialMatch(seed: number, difficulty: Difficulty): GameSimulation {
+  const { map, territories } = generateOrganicMap(seed);
   return {
     seed,
-    preset,
     difficulty,
     map,
     territories,
@@ -55,154 +50,7 @@ export function createInitialMatch(
     mapDirty: true,
     hitstopTimer: 0,
     shakeTrauma: 0,
-    timelapse: [
-      {
-        elapsed: 0,
-        owners: territories.map((t) => t.owner),
-      },
-    ],
-    timelapseTimer: 0,
   };
-}
-
-/** Records a lightweight territory-ownership snapshot for the Endgame Map Timelapse */
-export function recordTimelapseSnapshot(sim: GameSimulation, force = false) {
-  const owners = sim.territories.map((t) => t.owner);
-  const last = sim.timelapse[sim.timelapse.length - 1];
-  if (!force && last) {
-    const unchanged = last.owners.every((o, i) => o === owners[i]);
-    if (unchanged && sim.stats.elapsedSeconds - last.elapsed < 6) {
-      return;
-    }
-  }
-  // Keep timelapse crisp and memory-bounded (~120 frames max)
-  if (sim.timelapse.length >= 120) {
-    // Preserve frame 0 and thin out older intermediate frames
-    const compacted = [sim.timelapse[0]];
-    for (let i = 2; i < sim.timelapse.length; i += 2) {
-      compacted.push(sim.timelapse[i]);
-    }
-    sim.timelapse = compacted;
-  }
-  sim.timelapse.push({
-    elapsed: sim.stats.elapsedSeconds,
-    owners,
-  });
-}
-
-/** Computes live battle intensity tier (0 = calm, 1 = active skirmish, 2 = high-tension siege/endgame) */
-export function computeBattleIntensity(sim: GameSimulation): 0 | 1 | 2 {
-  let playerCount = 0;
-  for (const t of sim.territories) {
-    if (t.owner === 0) playerCount++;
-  }
-  const playerShare = playerCount / Math.max(1, sim.territories.length);
-
-  let enemyAttackingPlayer = false;
-  for (const tr of sim.troops) {
-    if (tr.owner !== 0 && sim.territories[tr.toId]?.owner === 0) {
-      enemyAttackingPlayer = true;
-      break;
-    }
-  }
-
-  if (
-    enemyAttackingPlayer ||
-    sim.powers.blitzTimer > 0 ||
-    playerShare >= 0.65 ||
-    sim.troops.length >= 5
-  ) {
-    return 2;
-  }
-  if (sim.troops.length >= 2 || sim.shakeTrauma > 0.15) {
-    return 1;
-  }
-  return 0;
-}
-
-export interface SupplyRouteResult {
-  ok: boolean;
-  action?: 'set' | 'cleared';
-  reason?: 'invalid' | 'not_owner' | 'not_neighbor' | 'target_not_friendly';
-}
-
-/** Sets or toggles an automatic rear-to-frontline reinforcement supply line between two adjacent friendly castles */
-export function setSupplyRoute(
-  sim: GameSimulation,
-  fromId: number,
-  toId: number,
-  requester: Exclude<FactionId, -1>,
-  events?: SimEvent[]
-): SupplyRouteResult {
-  if (fromId === toId) return { ok: false, reason: 'invalid' };
-  const from = sim.territories[fromId];
-  const to = sim.territories[toId];
-  if (!from || !to) return { ok: false, reason: 'invalid' };
-  if (from.owner !== requester) return { ok: false, reason: 'not_owner' };
-  if (!from.neighbors.includes(toId)) return { ok: false, reason: 'not_neighbor' };
-  if (to.owner !== requester) return { ok: false, reason: 'target_not_friendly' };
-
-  // Toggling an existing identical supply line cancels it cleanly
-  if (from.supplyTargetId === toId) {
-    from.supplyTargetId = null;
-    from.supplyTimer = 0;
-    events?.push({
-      type: 'supply_clear',
-      x: from.x,
-      y: from.y,
-      owner: requester,
-      territoryId: from.id,
-      territoryName: from.name,
-    });
-    return { ok: true, action: 'cleared' };
-  }
-
-  // Prevent infinite 2-way ping-pong loop between two adjacent friendly castles
-  if (to.supplyTargetId === fromId) {
-    to.supplyTargetId = null;
-    to.supplyTimer = 0;
-  }
-
-  from.supplyTargetId = toId;
-  // Trigger first caravan quickly (~0.7s) for instant visual feedback
-  from.supplyTimer = Math.max(0, ECONOMY.AUTO_SUPPLY_INTERVAL - 0.7);
-
-  events?.push({
-    type: 'supply_set',
-    x: from.x,
-    y: from.y,
-    toX: to.x,
-    toY: to.y,
-    owner: requester,
-    territoryId: from.id,
-    targetId: to.id,
-    territoryName: from.name,
-    targetName: to.name,
-  });
-
-  return { ok: true, action: 'set' };
-}
-
-/** Cancels an active Auto-Supply route on a castle */
-export function clearSupplyRoute(
-  sim: GameSimulation,
-  fromId: number,
-  requester: Exclude<FactionId, -1>,
-  events?: SimEvent[]
-): boolean {
-  const from = sim.territories[fromId];
-  if (!from || from.owner !== requester || from.supplyTargetId === null) return false;
-  from.supplyTargetId = null;
-  from.supplyTimer = 0;
-  events?.push({
-    type: 'supply_clear',
-    x: from.x,
-    y: from.y,
-    owner: requester,
-    territoryId: from.id,
-    territoryName: from.name,
-  });
-  return true;
 }
 
 /** Finds which territory contains a world point (direct castle radius + organic Voronoi lookup) */
@@ -255,13 +103,19 @@ export function getTerritoryRates(t: Territory, growthBonus = 1.0) {
   };
 }
 
+export function isBuildingBuilt(
+  t: Pick<Territory, 'hasBarracks' | 'hasTower' | 'hasMine' | 'hasForge'>,
+  building: BuildingType
+): boolean {
+  if (building === 'barracks') return t.hasBarracks;
+  if (building === 'tower') return t.hasTower;
+  if (building === 'mine') return t.hasMine;
+  return t.hasForge;
+}
+
 export function canBuildStructure(t: Territory, building: BuildingType): boolean {
   if (t.owner === -1) return false;
-  if (building === 'barracks' && t.hasBarracks) return false;
-  if (building === 'tower' && t.hasTower) return false;
-  if (building === 'mine' && t.hasMine) return false;
-  if (building === 'forge' && t.hasForge) return false;
-  if (building === 'port' && (t.hasPort || !t.isCoastal)) return false;
+  if (isBuildingBuilt(t, building)) return false;
   return t.military >= BUILDINGS[building].cost;
 }
 
@@ -281,7 +135,6 @@ export function buildStructure(
   if (building === 'tower') t.hasTower = true;
   if (building === 'mine') t.hasMine = true;
   if (building === 'forge') t.hasForge = true;
-  if (building === 'port') t.hasPort = true;
 
   if (requester === 0) {
     sim.stats.buildingsConstructed += 1;
@@ -289,11 +142,9 @@ export function buildStructure(
 
   events?.push({
     type: 'build',
-    x: building === 'port' && t.coastPoint ? t.coastPoint.x : t.x,
-    y: building === 'port' && t.coastPoint ? t.coastPoint.y : t.y,
+    x: t.x,
+    y: t.y,
     owner: requester,
-    territoryId: t.id,
-    territoryName: t.name,
     building,
   });
 
@@ -339,8 +190,6 @@ export function triggerCommanderPower(
       x: t.x,
       y: t.y,
       owner: 0,
-      territoryId: t.id,
-      territoryName: t.name,
       amount: converted,
     });
     return true;
@@ -359,8 +208,6 @@ export function triggerCommanderPower(
       x: anchor.x,
       y: anchor.y,
       owner: 0,
-      territoryId: anchor.id,
-      territoryName: anchor.name,
     });
     return true;
   }
@@ -376,8 +223,6 @@ export function triggerCommanderPower(
       x: t.x,
       y: t.y,
       owner: 0,
-      territoryId: t.id,
-      territoryName: t.name,
     });
     return true;
   }
@@ -389,88 +234,6 @@ export interface DispatchResult {
   ok: boolean;
   reason?: 'invalid' | 'not_owner' | 'not_neighbor' | 'insufficient_troops';
   sent?: number;
-  isNaval?: boolean;
-}
-
-/** Returns whether a dispatch from `fromId` to `toId` is legal (land neighbor OR cross-sea Naval Raid via Port) */
-export function canDispatchTo(
-  sim: GameSimulation,
-  fromId: number,
-  toId: number
-): { allowed: boolean; isNaval: boolean } {
-  if (fromId === toId) return { allowed: false, isNaval: false };
-  const from = sim.territories[fromId];
-  const to = sim.territories[toId];
-  if (!from || !to) return { allowed: false, isNaval: false };
-  if (from.neighbors.includes(toId)) {
-    return { allowed: true, isNaval: false };
-  }
-  if (from.hasPort && from.isCoastal && to.isCoastal) {
-    return { allowed: true, isNaval: true };
-  }
-  return { allowed: false, isNaval: false };
-}
-
-/** Computes a curved sea-lane waypoint that stays over open ocean water as much as possible */
-export function computeNavalRoute(
-  sim: GameSimulation,
-  from: Territory,
-  to: Territory
-): { startX: number; startY: number; viaX: number; viaY: number; targetX: number; targetY: number } {
-  const sx = from.coastPoint?.x ?? from.x;
-  const sy = from.coastPoint?.y ?? from.y;
-  const ex = to.coastPoint?.x ?? to.x;
-  const ey = to.coastPoint?.y ?? to.y;
-
-  const mx = (sx + ex) * 0.5;
-  const my = (sy + ey) * 0.5;
-  const dx = ex - sx;
-  const dy = ey - sy;
-  const len = Math.hypot(dx, dy) || 1;
-  const nx = -dy / len;
-  const ny = dx / len;
-
-  const { cells, cols, rows, step, width, height } = sim.map;
-  const offsets = [0, 75, -75, 155, -155, 240, -240];
-
-  let bestViaX = mx;
-  let bestViaY = my;
-  let bestScore = -Infinity;
-
-  for (const off of offsets) {
-    const cx = Math.max(24, Math.min(width - 24, mx + nx * off));
-    const cy = Math.max(24, Math.min(height - 24, my + ny * off));
-
-    let waterHits = 0;
-    const samples = 14;
-    for (let i = 1; i < samples; i++) {
-      const u = i / samples;
-      const mu = 1 - u;
-      const px = mu * mu * sx + 2 * mu * u * cx + u * u * ex;
-      const py = mu * mu * sy + 2 * mu * u * cy + u * u * ey;
-      const gx = Math.floor(px / step);
-      const gy = Math.floor(py / step);
-      if (gx < 0 || gy < 0 || gx >= cols || gy >= rows || cells[gy * cols + gx] === -1) {
-        waterHits += 1;
-      }
-    }
-    // Slight preference for shorter arc when water clearance ties
-    const score = waterHits * 10 - Math.abs(off) * 0.02;
-    if (score > bestScore) {
-      bestScore = score;
-      bestViaX = cx;
-      bestViaY = cy;
-    }
-  }
-
-  return {
-    startX: sx,
-    startY: sy,
-    viaX: bestViaX,
-    viaY: bestViaY,
-    targetX: ex,
-    targetY: ey,
-  };
 }
 
 export function dispatchTroops(
@@ -486,9 +249,7 @@ export function dispatchTroops(
   const to = sim.territories[toId];
   if (!from || !to) return { ok: false, reason: 'invalid' };
   if (from.owner !== requester) return { ok: false, reason: 'not_owner' };
-
-  const routeCheck = canDispatchTo(sim, fromId, toId);
-  if (!routeCheck.allowed) return { ok: false, reason: 'not_neighbor' };
+  if (!from.neighbors.includes(toId)) return { ok: false, reason: 'not_neighbor' };
 
   const clampedRatio = Math.max(0.1, Math.min(1.0, ratio));
   const maxSendable = Math.floor(from.military - 1);
@@ -497,23 +258,10 @@ export function dispatchTroops(
   const amount = Math.max(1, Math.min(maxSendable, Math.floor(from.military * clampedRatio)));
   from.military -= amount;
 
-  const isNaval = routeCheck.isNaval;
-  const route = isNaval
-    ? computeNavalRoute(sim, from, to)
-    : (() => {
-        const crossing = from.borderCrossings[toId] ?? {
-          x: (from.x + to.x) * 0.5,
-          y: (from.y + to.y) * 0.5,
-        };
-        return {
-          startX: from.x,
-          startY: from.y,
-          viaX: crossing.x,
-          viaY: crossing.y,
-          targetX: to.x,
-          targetY: to.y,
-        };
-      })();
+  const crossing = from.borderCrossings[toId] ?? {
+    x: (from.x + to.x) * 0.5,
+    y: (from.y + to.y) * 0.5,
+  };
 
   const attackMultiplier = from.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
 
@@ -521,22 +269,21 @@ export function dispatchTroops(
     id: sim.nextTroopId++,
     fromId,
     toId,
-    startX: route.startX,
-    startY: route.startY,
-    viaX: route.viaX,
-    viaY: route.viaY,
-    targetX: route.targetX,
-    targetY: route.targetY,
-    x: route.startX,
-    y: route.startY,
-    facingLeft: route.targetX < route.startX,
+    startX: from.x,
+    startY: from.y,
+    viaX: crossing.x,
+    viaY: crossing.y,
+    targetX: to.x,
+    targetY: to.y,
+    x: from.x,
+    y: from.y,
+    facingLeft: to.x < from.x,
     progress: 0,
-    speed: isNaval ? ECONOMY.NAVAL_SPEED : ECONOMY.TROOP_SPEED,
+    speed: ECONOMY.TROOP_SPEED,
     count: amount,
     owner: requester,
     attackMultiplier,
     isElite: from.hasForge || amount >= 25,
-    isNaval,
   });
 
   if (requester === 0) {
@@ -545,22 +292,16 @@ export function dispatchTroops(
 
   events?.push({
     type: 'dispatch',
-    x: route.startX,
-    y: route.startY,
-    toX: route.viaX,
-    toY: route.viaY,
+    x: from.x,
+    y: from.y,
+    toX: crossing.x,
+    toY: crossing.y,
     owner: requester,
-    previousOwner: to.owner,
-    territoryId: from.id,
-    targetId: to.id,
-    territoryName: from.name,
-    targetName: to.name,
     amount,
     isElite: from.hasForge || amount >= 25,
-    isNaval,
   });
 
-  return { ok: true, sent: amount, isNaval };
+  return { ok: true, sent: amount };
 }
 
 /** Quadratic Bezier interpolation through shared border crossing */
@@ -649,9 +390,9 @@ function resolveTroopArrival(
     return;
   }
 
-  // Conquest!
-  const previousOwner = target.owner;
-  const remaining = Math.max(1, (effectiveAttack - target.military) / Math.max(0.4, defenseMult));
+  // Conquest! Divide remaining effective damage by both defense and attack multipliers
+  const damagePerSoldier = Math.max(0.05, defenseMult * troop.attackMultiplier);
+  const remaining = Math.max(1, (effectiveAttack - target.military) / damagePerSoldier);
   target.owner = troop.owner;
   target.military = Math.min(troop.count, remaining);
   target.manpower = Math.max(8, target.manpower * 0.35);
@@ -659,20 +400,9 @@ function resolveTroopArrival(
   target.hasTower = false;
   target.hasMine = false;
   target.hasForge = false;
-  target.hasPort = false;
   target.shieldTimer = 0;
-  target.supplyTargetId = null;
-  target.supplyTimer = 0;
   target.capturePulse = 1.0;
   sim.mapDirty = true;
-
-  // Cancel any Auto-Supply routes that were feeding into this newly lost castle
-  for (const other of sim.territories) {
-    if (other.supplyTargetId === target.id && other.owner !== target.owner) {
-      other.supplyTargetId = null;
-      other.supplyTimer = 0;
-    }
-  }
 
   if (troop.owner === 0) {
     sim.stats.territoriesCaptured += 1;
@@ -683,8 +413,6 @@ function resolveTroopArrival(
     sim.shakeTrauma = Math.min(1, sim.shakeTrauma + 0.22);
   }
 
-  recordTimelapseSnapshot(sim, true);
-
   events.push({
     type: 'capture',
     x: target.x,
@@ -692,12 +420,8 @@ function resolveTroopArrival(
     fromX: troop.viaX,
     fromY: troop.viaY,
     owner: troop.owner,
-    previousOwner,
-    territoryId: target.id,
-    territoryName: target.name,
     amount: Math.round(target.military),
     isElite: troop.isElite,
-    isNaval: troop.isNaval,
     capturedByPlayer: troop.owner === 0,
   });
 }
@@ -716,6 +440,42 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
     }
   }
 
+  // Track incoming threats and already-dispatched friendly waves per territory
+  const incomingThreat = new Float64Array(sim.territories.length);
+  const enRouteAttack = new Map<string, number>();
+  for (const tr of sim.troops) {
+    const dest = sim.territories[tr.toId];
+    if (!dest) continue;
+    const raw = tr.count * tr.attackMultiplier;
+    if (dest.owner !== tr.owner) {
+      incomingThreat[tr.toId] += raw;
+    }
+    const key = `${tr.owner}:${tr.toId}`;
+    enRouteAttack.set(key, (enRouteAttack.get(key) ?? 0) + raw);
+  }
+
+  // BFS distance from each faction's frontline so rear castles reinforce forward without ping-ponging
+  const distToFront = new Int16Array(sim.territories.length).fill(-1);
+  const bfsQueue: number[] = [];
+  for (const t of sim.territories) {
+    if (t.owner < 0) continue;
+    if (t.neighbors.some((nId) => sim.territories[nId].owner !== t.owner)) {
+      distToFront[t.id] = 0;
+      bfsQueue.push(t.id);
+    }
+  }
+  for (let head = 0; head < bfsQueue.length; head++) {
+    const curId = bfsQueue[head];
+    const curOwner = sim.territories[curId].owner;
+    const nextDist = distToFront[curId] + 1;
+    for (const nId of sim.territories[curId].neighbors) {
+      if (sim.territories[nId].owner === curOwner && distToFront[nId] === -1) {
+        distToFront[nId] = nextDist;
+        bfsQueue.push(nId);
+      }
+    }
+  }
+
   for (const t of sim.territories) {
     if (t.owner === -1) continue;
     if (!demoMode && t.owner === 0) continue;
@@ -726,9 +486,10 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
     const enemyNeighbors = neighbors.filter((n) => n.owner !== t.owner);
     const friendlyNeighbors = neighbors.filter((n) => n.owner === t.owner);
     const isFrontline = enemyNeighbors.length > 0;
+    const safeMilitary = t.military - incomingThreat[t.id] * getEffectiveDefenseMultiplier(t);
 
     // 1. Strategic Building Decisions (including War Forge for aggressors!)
-    if (t.military >= 28) {
+    if (safeMilitary >= 28) {
       if (
         !t.hasMine &&
         t.military >= BUILDINGS.mine.cost + (isFrontline ? 14 : 6) &&
@@ -765,71 +526,29 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
         buildStructure(sim, t.id, 'barracks', t.owner, events);
         continue;
       }
-
-      // Build coastal Port on sea-heavy maps or when coastal castles have surplus forces
-      const navalMapBonus = sim.preset === 'archipelago' || sim.preset === 'strait' || sim.preset === 'middle_east';
-      if (
-        t.isCoastal &&
-        !t.hasPort &&
-        t.hasBarracks &&
-        t.military >= BUILDINGS.port.cost + (navalMapBonus ? 8 : 16) &&
-        rng() < (navalMapBonus ? 0.65 : 0.3)
-      ) {
-        buildStructure(sim, t.id, 'port', t.owner, events);
-        continue;
-      }
     }
 
-    // 2. Naval Raid Opportunity from Coastal Port Castle (bypass blockades across water!)
-    if (t.hasPort && t.isCoastal && t.military >= 26 && rng() < 0.32) {
-      const coastalEnemies = sim.territories.filter(
-        (other) =>
-          other.id !== t.id &&
-          other.isCoastal &&
-          other.owner !== t.owner &&
-          !t.neighbors.includes(other.id)
-      );
-      if (coastalEnemies.length > 0) {
-        let bestSeaTarget: Territory | null = null;
-        let bestSeaScore = -Infinity;
-        const myAttackMult = t.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
-
-        for (const c of coastalEnemies) {
-          const defMult = getEffectiveDefenseMultiplier(c);
-          const effectiveDefense = c.military / Math.max(0.25, defMult);
-          const advantage = (t.military * myAttackMult) / Math.max(4, effectiveDefense);
-          if (advantage < diff.aiAttackThreshold * 1.05) continue;
-          const dist = Math.hypot(c.x - t.x, c.y - t.y);
-          let score = advantage * 34 - dist * 0.04;
-          if (c.owner === -1) score += 16;
-          if (!demoMode && c.owner === 0 && playerCount >= diff.playerThreatThreshold) score += 20;
-          if (score > bestSeaScore) {
-            bestSeaScore = score;
-            bestSeaTarget = c;
-          }
-        }
-        if (bestSeaTarget) {
-          dispatchTroops(sim, t.id, bestSeaTarget.id, diff.aiAggressionRatio, t.owner, events);
-          continue;
-        }
-      }
-    }
-
-    // 3. Interior Supply Lines: Safe rear castles reinforce threatened frontline castles
+    // 2. Interior Supply Lines: Route troops strictly closer to the frontline
     if (!isFrontline && friendlyNeighbors.length > 0 && t.military > 24) {
-      const frontlineAlly = friendlyNeighbors
-        .filter((f) => f.neighbors.some((nId) => sim.territories[nId].owner !== t.owner))
-        .sort((a, b) => a.military - b.military)[0];
-
-      const dest = frontlineAlly ?? friendlyNeighbors.sort((a, b) => a.military - b.military)[0];
-      if (dest) {
-        dispatchTroops(sim, t.id, dest.id, 0.65, t.owner, events);
+      const myDist = distToFront[t.id];
+      const closerAllies = friendlyNeighbors.filter(
+        (f) => distToFront[f.id] >= 0 && distToFront[f.id] < myDist
+      );
+      if (closerAllies.length > 0) {
+        closerAllies.sort((a, b) => a.military - b.military);
+        dispatchTroops(sim, t.id, closerAllies[0].id, 0.65, t.owner, events);
       }
       continue;
     }
 
-    // 4. Tactical Offensive Evaluation
-    if (isFrontline && t.military > 16) {
+    // 3. Tactical Offensive Evaluation based on actual dispatched wave strength
+    if (isFrontline && safeMilitary > 16) {
+      const sendCount = Math.min(
+        Math.floor(t.military - 1),
+        Math.floor(t.military * diff.aiAggressionRatio)
+      );
+      if (sendCount < 1 || sendCount > safeMilitary) continue;
+
       let bestTarget: Territory | null = null;
       let bestScore = -Infinity;
       const myAttackMult = t.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
@@ -837,7 +556,8 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
       for (const n of enemyNeighbors) {
         const defMult = getEffectiveDefenseMultiplier(n);
         const effectiveDefense = n.military / Math.max(0.25, defMult);
-        const advantage = (t.military * myAttackMult) / Math.max(4, effectiveDefense);
+        const enRoute = enRouteAttack.get(`${t.owner}:${n.id}`) ?? 0;
+        const advantage = (sendCount * myAttackMult + enRoute) / Math.max(4, effectiveDefense);
 
         let threshold = diff.aiAttackThreshold;
         if (personality === 'aggressor') threshold *= 0.9;
@@ -909,7 +629,6 @@ export function computeFactionPowers(sim: GameSimulation): FactionPowerEntry[] {
 export interface AttackPreview {
   sendAmount: number;
   isFriendly: boolean;
-  isNaval: boolean;
   effectiveAttack: number;
   defenderMilitary: number;
   willConquer: boolean;
@@ -917,7 +636,7 @@ export interface AttackPreview {
   defenseBonusPct: number;
 }
 
-/** Computes an accurate live preview of dispatching troops (land or naval raid) */
+/** Computes an accurate live preview of dispatching troops from one territory to an adjacent neighbor */
 export function previewAttackOutcome(
   sim: GameSimulation,
   fromId: number,
@@ -926,9 +645,7 @@ export function previewAttackOutcome(
 ): AttackPreview | null {
   const from = sim.territories[fromId];
   const to = sim.territories[toId];
-  if (!from || !to) return null;
-  const check = canDispatchTo(sim, fromId, toId);
-  if (!check.allowed) return null;
+  if (!from || !to || !from.neighbors.includes(toId)) return null;
 
   const clampedRatio = Math.max(0.1, Math.min(1.0, ratio));
   const maxSendable = Math.max(0, Math.floor(from.military - 1));
@@ -939,7 +656,6 @@ export function previewAttackOutcome(
     return {
       sendAmount,
       isFriendly: true,
-      isNaval: check.isNaval,
       effectiveAttack: sendAmount,
       defenderMilitary: Math.floor(to.military),
       willConquer: false,
@@ -957,7 +673,6 @@ export function previewAttackOutcome(
   return {
     sendAmount,
     isFriendly: false,
-    isNaval: check.isNaval,
     effectiveAttack,
     defenderMilitary,
     willConquer: effectiveAttack > defenderMilitary,
@@ -972,7 +687,8 @@ export function rallyReinforcements(
   targetId: number,
   requester: Exclude<FactionId, -1>,
   ratio = 0.5,
-  events?: SimEvent[]
+  events?: SimEvent[],
+  excludeFromId?: number
 ): { squadsSent: number; totalSent: number } {
   const target = sim.territories[targetId];
   if (!target || target.owner !== requester) {
@@ -983,6 +699,7 @@ export function rallyReinforcements(
   let totalSent = 0;
 
   for (const nId of target.neighbors) {
+    if (nId === excludeFromId) continue;
     const neighbor = sim.territories[nId];
     if (!neighbor || neighbor.owner !== requester) continue;
     if (neighbor.military < 4) continue;
@@ -1053,16 +770,16 @@ export function stepSimulation(
   const dt = clamped * Math.max(0.5, Math.min(2.5, speedMultiplier));
   const events: SimEvent[] = [];
 
-  // Decay visual timers even during brief hitstop
-  sim.shakeTrauma = Math.max(0, sim.shakeTrauma - dt * 1.9);
+  // Decay visual timers in real-time (independent of speedMultiplier)
+  sim.shakeTrauma = Math.max(0, sim.shakeTrauma - clamped * 1.9);
   for (const t of sim.territories) {
-    if (t.hitFlash > 0) t.hitFlash = Math.max(0, t.hitFlash - dt);
-    if (t.capturePulse > 0) t.capturePulse = Math.max(0, t.capturePulse - dt * 1.4);
-    if (t.towerFireTimer > 0) t.towerFireTimer = Math.max(0, t.towerFireTimer - dt);
+    if (t.hitFlash > 0) t.hitFlash = Math.max(0, t.hitFlash - clamped);
+    if (t.capturePulse > 0) t.capturePulse = Math.max(0, t.capturePulse - clamped * 1.4);
+    if (t.towerFireTimer > 0) t.towerFireTimer = Math.max(0, t.towerFireTimer - clamped);
   }
 
   if (sim.hitstopTimer > 0) {
-    sim.hitstopTimer = Math.max(0, sim.hitstopTimer - dt);
+    sim.hitstopTimer = Math.max(0, sim.hitstopTimer - clamped);
     return events;
   }
 
@@ -1102,26 +819,6 @@ export function stepSimulation(
       );
       t.manpower -= convertible;
       t.military += convertible * rates.conversionYield;
-    }
-  }
-
-  // 1b. Tick Auto-Supply Reinforcement Lines (rear -> frontline automation)
-  if (!demoMode) {
-    for (const t of sim.territories) {
-      if (t.supplyTargetId === null) continue;
-      const dest = sim.territories[t.supplyTargetId];
-      if (t.owner === -1 || !dest || dest.owner !== t.owner || !t.neighbors.includes(dest.id)) {
-        t.supplyTargetId = null;
-        t.supplyTimer = 0;
-        continue;
-      }
-      t.supplyTimer += dt;
-      if (t.supplyTimer >= ECONOMY.AUTO_SUPPLY_INTERVAL) {
-        t.supplyTimer = 0;
-        if (t.military >= ECONOMY.AUTO_SUPPLY_MIN_MILITARY) {
-          dispatchTroops(sim, t.id, dest.id, ECONOMY.AUTO_SUPPLY_RATIO, t.owner, events);
-        }
-      }
     }
   }
 
@@ -1169,21 +866,11 @@ export function stepSimulation(
     evaluateAI(sim, events, demoMode);
   }
 
-  // 3b. Periodic Timelapse Snapshot (every 4s during active play)
-  if (!demoMode) {
-    sim.timelapseTimer += dt;
-    if (sim.timelapseTimer >= 4.0) {
-      sim.timelapseTimer = 0;
-      recordTimelapseSnapshot(sim, false);
-    }
-  }
-
   // 4. Victory / Defeat Check (active gameplay only)
   if (!demoMode) {
     const outcome = checkGameOutcome(sim);
     if (outcome !== 'none' && sim.outcome === 'none') {
       sim.outcome = outcome;
-      recordTimelapseSnapshot(sim, true);
       events.push({
         type: outcome,
         x: sim.map.width * 0.5,
@@ -1194,4 +881,73 @@ export function stepSimulation(
   }
 
   return events;
+}
+
+export function buildHudSnapshot(
+  sim: GameSimulation,
+  phase: GamePhase,
+  sendRatio: number,
+  selectedId: number | null
+): HudSnapshot {
+  const sel = selectedId !== null ? sim.territories[selectedId] ?? null : null;
+  let playerTerritories = 0;
+  let playerMilitary = 0;
+  let playerManpower = 0;
+
+  for (const t of sim.territories) {
+    if (t.owner === 0) {
+      playerTerritories += 1;
+      playerMilitary += Math.floor(t.military);
+      playerManpower += Math.floor(t.manpower);
+    }
+  }
+  for (const tr of sim.troops) {
+    if (tr.owner === 0) {
+      playerMilitary += Math.floor(tr.count);
+    }
+  }
+
+  let selectedTerritory: HudSnapshot['selectedTerritory'] = null;
+  if (sel) {
+    const bonus = sel.owner <= 0 ? 1.0 : DIFFICULTIES[sim.difficulty].aiGrowthBonus;
+    const rates = getTerritoryRates(sel, bonus);
+    selectedTerritory = {
+      id: sel.id,
+      name: sel.name,
+      biome: sel.biome,
+      owner: sel.owner,
+      manpower: sel.manpower,
+      maxManpower: rates.maxManpower,
+      military: sel.military,
+      manpowerRate: rates.manpowerRate,
+      conversionRate: rates.netMilitaryPerSec,
+      hasBarracks: sel.hasBarracks,
+      hasTower: sel.hasTower,
+      hasMine: sel.hasMine,
+      hasForge: sel.hasForge,
+      shieldTimer: sel.shieldTimer,
+      neighborCount: sel.neighbors.length,
+    };
+  }
+
+  return {
+    phase,
+    outcome: sim.outcome,
+    difficulty: sim.difficulty,
+    sendRatio,
+    selectedId,
+    selectedTerritory,
+    powers: {
+      cooldowns: { ...sim.powers.cooldowns },
+      blitzTimer: sim.powers.blitzTimer,
+    },
+    playerTerritories,
+    totalTerritories: sim.territories.length,
+    playerMilitary,
+    playerManpower,
+    elapsedSeconds: sim.stats.elapsedSeconds,
+    factionPowers: computeFactionPowers(sim),
+    stats: { ...sim.stats },
+    mapSeed: sim.seed,
+  };
 }

@@ -116,6 +116,20 @@ export function TopHudBar({
             tabIndex={-1}
             onClick={(e) => {
               e.currentTarget.blur();
+              onOpenShortcuts();
+            }}
+            aria-label="راهنمای کلیدهای میانبر (H)"
+            title="راهنمای کلیدهای میانبر (H)"
+            className="w-8 h-8 bg-[#182336] active:bg-[#23324b] border border-[#2c3d59] text-[#cbd5e1] flex items-center justify-center cursor-pointer"
+          >
+            <KeyboardIcon className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.currentTarget.blur();
               onNewMap();
             }}
             aria-label="نقشه تصادفی جدید"

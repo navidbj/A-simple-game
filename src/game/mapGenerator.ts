@@ -27,7 +27,6 @@ interface WaveParams {
   p3: number;
   p4: number;
   a1: number;
-  a2: number;
 }
 
 /** Smooth 2D radial ellipse signed-height helper (> 0 inside island) */
@@ -167,7 +166,6 @@ export function generateOrganicMap(
     p3: rng() * Math.PI * 2,
     p4: rng() * Math.PI * 2,
     a1: rng() * Math.PI * 2,
-    a2: rng() * Math.PI * 2,
   };
 
   // 1. Place well-spaced territory centers safely inside land for the chosen preset

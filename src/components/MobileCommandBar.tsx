@@ -5,29 +5,16 @@ import {
   FACTIONS,
   NEUTRAL_STYLE,
 } from '../game/constants';
+import { isBuildingBuilt } from '../game/simulation';
 import type { BuildingType, HudSnapshot, PowerType } from '../game/types';
-import {
-  BarracksIcon,
-  BlitzIcon,
-  GoldMineIcon,
-  GuardTowerIcon,
-  MobilizeIcon,
-  PortAnchorIcon,
-  RallyIcon,
-  ShieldPowerIcon,
-  SupplyRouteIcon,
-  WarForgeIcon,
-} from './GameIcons';
+import { BuildingIcon, PowerIcon, RallyIcon } from './GameIcons';
 
 interface MobileCommandBarProps {
   hud: HudSnapshot;
-  supplyMode: boolean;
   onCycleSendRatio: () => void;
   onBuild: (type: BuildingType) => void;
   onTriggerPower: (power: PowerType) => void;
   onRally: () => void;
-  onToggleSupplyMode: () => void;
-  onClearSupply: () => void;
 }
 
 const BUILDING_ITEMS: Array<{ type: BuildingType; shortLabel: string }> = [
@@ -35,7 +22,6 @@ const BUILDING_ITEMS: Array<{ type: BuildingType; shortLabel: string }> = [
   { type: 'tower', shortLabel: 'برج' },
   { type: 'mine', shortLabel: 'معدن' },
   { type: 'forge', shortLabel: 'آهنگری' },
-  { type: 'port', shortLabel: 'بندر' },
 ];
 
 const POWER_ITEMS: Array<{ type: PowerType; shortLabel: string }> = [
@@ -44,29 +30,12 @@ const POWER_ITEMS: Array<{ type: PowerType; shortLabel: string }> = [
   { type: 'shield', shortLabel: 'سپر' },
 ];
 
-function BuildingSvg({ type }: { type: BuildingType }) {
-  if (type === 'barracks') return <BarracksIcon className="w-4 h-4 shrink-0" />;
-  if (type === 'tower') return <GuardTowerIcon className="w-4 h-4 shrink-0" />;
-  if (type === 'mine') return <GoldMineIcon className="w-4 h-4 shrink-0" />;
-  if (type === 'port') return <PortAnchorIcon className="w-4 h-4 shrink-0" />;
-  return <WarForgeIcon className="w-4 h-4 shrink-0" />;
-}
-
-function PowerSvg({ type }: { type: PowerType }) {
-  if (type === 'mobilize') return <MobilizeIcon className="w-4 h-4 shrink-0" />;
-  if (type === 'blitz') return <BlitzIcon className="w-4 h-4 shrink-0" />;
-  return <ShieldPowerIcon className="w-4 h-4 shrink-0" />;
-}
-
 export function MobileCommandBar({
   hud,
-  supplyMode,
   onCycleSendRatio,
   onBuild,
   onTriggerPower,
   onRally,
-  onToggleSupplyMode,
-  onClearSupply,
 }: MobileCommandBarProps) {
   const sel = hud.selectedTerritory;
   const isPlayerOwned = sel !== null && sel.owner === 0;
@@ -89,7 +58,7 @@ export function MobileCommandBar({
       }}
     >
       <div className="overflow-x-auto no-scrollbar">
-        <div className="w-max min-w-full flex items-center justify-center gap-1.5">
+        <div className="mx-auto w-max flex items-center gap-1.5">
         {/* 1. Compact Selected Castle Readout */}
         <div className="min-w-[96px] max-w-[120px] shrink-0 bg-[#142033] border-2 border-[#25354f] px-2 py-1 flex flex-col justify-center min-h-[46px]">
           <div className="flex items-center gap-1 min-w-0">
@@ -152,47 +121,15 @@ export function MobileCommandBar({
           </span>
         </button>
 
-        {/* 3b. Quick Auto-Supply Route Button */}
-        <button
-          type="button"
-          tabIndex={-1}
-          disabled={!isPlayerOwned || (!sel?.supplyTargetName && (sel?.friendlyNeighborCount ?? 0) === 0)}
-          onClick={(e) => {
-            e.currentTarget.blur();
-            if (sel?.supplyTargetName) onClearSupply();
-            else onToggleSupplyMode();
-          }}
-          aria-label={sel?.supplyTargetName ? 'لغو خط تأمین خودکار' : 'تنظیم خط تأمین خودکار'}
-          className={`min-w-[50px] min-h-[46px] shrink-0 px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
-            sel?.supplyTargetName || supplyMode
-              ? 'bg-[#0f3529] border-[#34d399] text-[#6ee7b7] cursor-pointer'
-              : isPlayerOwned && (sel?.friendlyNeighborCount ?? 0) > 0
-                ? 'bg-[#152433] active:bg-[#1e354a] border-[#2e526b] text-[#bae6fd] cursor-pointer'
-                : 'bg-[#101827] border-[#1f2c40] text-[#475569] cursor-not-allowed'
-          }`}
-        >
-          <SupplyRouteIcon className="w-4 h-4 shrink-0" />
-          <span className="text-[9px] font-extrabold leading-tight mt-0.5 whitespace-nowrap">
-            {sel?.supplyTargetName ? 'لغو خط' : supplyMode ? 'مقصد؟' : 'تأمین'}
-          </span>
-        </button>
-
         <span className="h-8 w-px bg-[#25354f] shrink-0" aria-hidden="true" />
 
-        {/* 4. All 5 Buildings (incl. Coastal Port) — 1-Tap Access without Drawer */}
+        {/* 4. All 4 Buildings — 1-Tap Access without Drawer */}
         <div className="flex items-center gap-1 shrink-0">
           {BUILDING_ITEMS.map(({ type, shortLabel }) => {
             const cfg = BUILDINGS[type];
-            const alreadyBuilt =
-              sel !== null &&
-              ((type === 'barracks' && sel.hasBarracks) ||
-                (type === 'tower' && sel.hasTower) ||
-                (type === 'mine' && sel.hasMine) ||
-                (type === 'forge' && sel.hasForge) ||
-                (type === 'port' && sel.hasPort));
-            const needsCoast = type === 'port' && sel !== null && !sel.isCoastal;
+            const alreadyBuilt = sel !== null && isBuildingBuilt(sel, type);
             const canAfford = isPlayerOwned && sel !== null && sel.military >= cfg.cost;
-            const disabled = !isPlayerOwned || alreadyBuilt || needsCoast || !canAfford;
+            const disabled = !isPlayerOwned || alreadyBuilt || !canAfford;
 
             return (
               <button
@@ -205,20 +142,16 @@ export function MobileCommandBar({
                   e.currentTarget.blur();
                   onBuild(type);
                 }}
-                className={`min-w-[52px] min-h-[46px] px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
+                className={`min-w-[56px] min-h-[46px] px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
                   alreadyBuilt
-                    ? type === 'port'
-                      ? 'bg-[#0f293b] border-[#38bdf8] text-[#7dd3fc]'
-                      : 'bg-[#152823] border-[#28634d] text-[#86efac]'
+                    ? 'bg-[#152823] border-[#28634d] text-[#86efac]'
                     : !disabled
-                      ? type === 'port'
-                        ? 'bg-[#13283d] active:bg-[#1a3a58] border-[#38bdf8]/70 text-[#e0f2fe] cursor-pointer'
-                        : 'bg-[#162236] active:bg-[#223452] border-[#385073] text-[#f6efe0] cursor-pointer'
+                      ? 'bg-[#162236] active:bg-[#223452] border-[#385073] text-[#f6efe0] cursor-pointer'
                       : 'bg-[#111929] border-[#1e2a3d] text-[#64748b] cursor-not-allowed'
                 }`}
               >
                 <div className="flex items-center gap-1">
-                  <BuildingSvg type={type} />
+                  <BuildingIcon type={type} className="w-4 h-4 shrink-0" />
                   <span className="font-num text-[10px] font-bold">
                     {alreadyBuilt ? '✓' : cfg.cost}
                   </span>
@@ -264,7 +197,7 @@ export function MobileCommandBar({
                       : 'bg-[#111929] border-[#1e2a3d] text-[#64748b] cursor-not-allowed'
                 }`}
               >
-                <PowerSvg type={type} />
+                <PowerIcon type={type} className="w-4 h-4 shrink-0" />
                 <span className="text-[9px] font-bold leading-tight mt-0.5 whitespace-nowrap">
                   {cd > 0 ? <span className="font-num">{Math.ceil(cd)}s</span> : shortLabel}
                 </span>

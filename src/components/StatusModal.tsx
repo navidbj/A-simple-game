@@ -1,12 +1,4 @@
-import type {
-  GameOutcome,
-  GamePhase,
-  MapGridData,
-  MatchStats,
-  Territory,
-  TimelapseSnapshot,
-} from '../game/types';
-import { TimelapseCanvas } from './TimelapseCanvas';
+import type { GameOutcome, GamePhase, MatchStats } from '../game/types';
 
 interface StatusModalProps {
   phase: GamePhase;
@@ -14,9 +6,6 @@ interface StatusModalProps {
   stats: MatchStats;
   playerTerritories: number;
   totalTerritories: number;
-  timelapseMap?: MapGridData;
-  timelapseTerritories?: Territory[];
-  timelapseSnapshots?: TimelapseSnapshot[];
   onResume: () => void;
   onRestartNewMap: () => void;
   onReturnTitle: () => void;
@@ -35,9 +24,6 @@ export function StatusModal({
   stats,
   playerTerritories,
   totalTerritories,
-  timelapseMap,
-  timelapseTerritories,
-  timelapseSnapshots,
   onResume,
   onRestartNewMap,
   onReturnTitle,
@@ -61,21 +47,14 @@ export function StatusModal({
         ? 'تمامی قلعه‌های قاره زیر پرچم امپراتوری سرخ متحد شدند.'
         : 'آخرین دژ شما تسخیر شد. با استراتژی تازه دوباره حمله کنید.';
 
-  const showTimelapse =
-    phase === 'gameover' &&
-    timelapseMap &&
-    timelapseTerritories &&
-    timelapseSnapshots &&
-    timelapseSnapshots.length > 0;
-
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="status-modal-title"
-      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[#070d17]/82"
+      className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[#070d17]/80"
     >
-      <div className="w-full max-w-md max-h-[92dvh] overflow-y-auto no-scrollbar bg-[#111a2b] border-2 border-[#d6b472]/40 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.82)] text-center">
+      <div className="w-full max-w-md bg-[#111a2b] border-2 border-[#d6b472]/40 p-6 shadow-[0_24px_70px_rgba(0,0,0,0.8)] text-center">
         <h2
           id="status-modal-title"
           className={`text-2xl font-black ${
@@ -89,48 +68,39 @@ export function StatusModal({
           {heading}
         </h2>
 
-        <p className="mt-1.5 text-xs sm:text-sm text-[#a3b1c6] leading-relaxed">{subtitle}</p>
-
-        {/* Endgame Map Timelapse Replay */}
-        {showTimelapse && (
-          <TimelapseCanvas
-            map={timelapseMap}
-            territories={timelapseTerritories}
-            snapshots={timelapseSnapshots}
-          />
-        )}
+        <p className="mt-2 text-sm text-[#a3b1c6] leading-relaxed">{subtitle}</p>
 
         {/* Tabular-nums Match Stats */}
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <div className="bg-[#162236] border border-[#25354f] py-2.5 px-2">
+        <div className="mt-5 grid grid-cols-3 gap-2.5">
+          <div className="bg-[#162236] border-2 border-[#25354f] py-3 px-2">
             <div className="text-[11px] text-[#94a3b8]">مدت نبرد</div>
-            <div className="mt-0.5 font-num text-base font-bold text-[#f6efe0]">
+            <div className="mt-1 font-num text-lg font-bold text-[#f6efe0]">
               {formatDuration(stats.elapsedSeconds)}
             </div>
           </div>
 
-          <div className="bg-[#162236] border border-[#25354f] py-2.5 px-2">
+          <div className="bg-[#162236] border-2 border-[#25354f] py-3 px-2">
             <div className="text-[11px] text-[#94a3b8]">قلعه‌های شما</div>
-            <div className="mt-0.5 font-num text-base font-bold text-[#f6efe0]">
+            <div className="mt-1 font-num text-lg font-bold text-[#f6efe0]">
               {playerTerritories}/{totalTerritories}
             </div>
           </div>
 
-          <div className="bg-[#162236] border border-[#25354f] py-2.5 px-2">
+          <div className="bg-[#162236] border-2 border-[#25354f] py-3 px-2">
             <div className="text-[11px] text-[#94a3b8]">ساختمان‌ها</div>
-            <div className="mt-0.5 font-num text-base font-bold text-[#d6b472]">
+            <div className="mt-1 font-num text-lg font-bold text-[#d6b472]">
               {stats.buildingsConstructed}
             </div>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="mt-5 flex flex-col gap-2">
+        <div className="mt-6 flex flex-col gap-2.5">
           {phase === 'paused' ? (
             <button
               type="button"
               onClick={onResume}
-              className="w-full py-2.5 px-5 bg-[#c99846] hover:bg-[#b58636] text-[#0c1320] font-extrabold text-sm transition-colors cursor-pointer"
+              className="w-full py-3 px-5 border-2 border-[#fde68a]/40 bg-[#c99846] hover:bg-[#b58636] text-[#0c1320] font-extrabold text-sm transition-colors cursor-pointer"
             >
               ادامه نبرد
             </button>
@@ -139,7 +109,7 @@ export function StatusModal({
               type="button"
               data-start="true"
               onClick={onRestartNewMap}
-              className="w-full py-2.5 px-5 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-extrabold text-sm transition-colors cursor-pointer"
+              className="w-full py-3 px-5 border-2 border-[#f87171]/60 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-extrabold text-sm transition-colors cursor-pointer"
             >
               شروع نبرد جدید
             </button>
@@ -149,7 +119,7 @@ export function StatusModal({
             <button
               type="button"
               onClick={onRestartNewMap}
-              className="w-full py-2 px-5 bg-[#1c2940] hover:bg-[#263755] border border-[#314566] text-[#e2e8f0] font-bold text-sm transition-colors cursor-pointer"
+              className="w-full py-2.5 px-5 bg-[#1c2940] hover:bg-[#263755] border-2 border-[#314566] text-[#e2e8f0] font-bold text-sm transition-colors cursor-pointer"
             >
               تولید نقشه تصادفی جدید
             </button>
@@ -158,7 +128,7 @@ export function StatusModal({
           <button
             type="button"
             onClick={onReturnTitle}
-            className="w-full py-2 px-5 bg-transparent hover:bg-[#182336] text-[#94a3b8] hover:text-white font-medium text-xs transition-colors cursor-pointer"
+            className="w-full py-2.5 px-5 border-2 border-transparent bg-transparent hover:bg-[#182336] hover:border-[#25354f] text-[#94a3b8] hover:text-white font-medium text-xs transition-colors cursor-pointer"
           >
             بازگشت به صفحه اصلی
           </button>

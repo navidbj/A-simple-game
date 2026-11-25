@@ -57,7 +57,7 @@ export interface PowerConfig {
 }
 
 export interface MapProp {
-  kind: 'tree' | 'pine' | 'mountain' | 'wheat' | 'flower';
+  kind: 'tree' | 'pine' | 'mountain' | 'wheat';
   x: number;
   y: number;
   variant: number;
@@ -112,19 +112,6 @@ export interface TroopGroup {
   attackMultiplier: number;
   isElite: boolean;
   isNaval: boolean;
-}
-
-export interface Particle {
-  active: boolean;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  maxLife: number;
-  size: number;
-  color: string;
-  gravity: number;
 }
 
 export interface FloatingText {

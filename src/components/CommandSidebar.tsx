@@ -6,62 +6,36 @@ import {
   NEUTRAL_STYLE,
   SEND_RATIOS,
 } from '../game/constants';
+import { isBuildingBuilt } from '../game/simulation';
 import type { BuildingType, HudSnapshot, PowerType } from '../game/types';
 import {
-  BarracksIcon,
-  BlitzIcon,
-  GoldMineIcon,
-  GuardTowerIcon,
+  BuildingIcon,
   ManpowerIcon,
   MapDiceIcon,
-  MobilizeIcon,
-  PortAnchorIcon,
+  PowerIcon,
   RallyIcon,
-  ShieldPowerIcon,
-  SupplyRouteIcon,
   SwordIcon,
-  WarForgeIcon,
 } from './GameIcons';
 
 interface CommandSidebarProps {
   hud: HudSnapshot;
-  supplyMode: boolean;
   onChangeSendRatio: (ratio: number) => void;
   onBuild: (type: BuildingType) => void;
   onTriggerPower: (power: PowerType) => void;
   onRally: () => void;
-  onToggleSupplyMode: () => void;
-  onClearSupply: () => void;
   onOpenShortcuts: () => void;
   onNewMap: () => void;
 }
 
-const BUILDING_ORDER: BuildingType[] = ['barracks', 'tower', 'mine', 'forge', 'port'];
+const BUILDING_ORDER: BuildingType[] = ['barracks', 'tower', 'mine', 'forge'];
 const POWER_ORDER: PowerType[] = ['mobilize', 'blitz', 'shield'];
-
-function BuildingSvg({ type }: { type: BuildingType }) {
-  if (type === 'barracks') return <BarracksIcon className="w-5 h-5 shrink-0" />;
-  if (type === 'tower') return <GuardTowerIcon className="w-5 h-5 shrink-0" />;
-  if (type === 'mine') return <GoldMineIcon className="w-5 h-5 shrink-0" />;
-  if (type === 'port') return <PortAnchorIcon className="w-5 h-5 shrink-0" />;
-  return <WarForgeIcon className="w-5 h-5 shrink-0" />;
-}
-
-function PowerSvg({ type }: { type: PowerType }) {
-  if (type === 'mobilize') return <MobilizeIcon className="w-5 h-5 shrink-0" />;
-  if (type === 'blitz') return <BlitzIcon className="w-5 h-5 shrink-0" />;
-  return <ShieldPowerIcon className="w-5 h-5 shrink-0" />;
-}
 
 export function CommandSidebar({
   hud,
-  supplyMode,
   onChangeSendRatio,
   onBuild,
   onTriggerPower,
   onRally,
-  onToggleSupplyMode,
-  onClearSupply,
   onOpenShortcuts,
   onNewMap,
 }: CommandSidebarProps) {
@@ -191,71 +165,24 @@ export function CommandSidebar({
                 </div>
               </div>
 
-              {/* Quick Tactical Logistics: Rally Reinforcements [A] + Auto-Supply Line [S] */}
+              {/* Quick 1-Click Rally Reinforcements from Adjacent Friendly Castles */}
               {isPlayerOwned && (
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={(e) => {
-                      e.currentTarget.blur();
-                      onRally();
-                    }}
-                    title="فراخوانی ۵۰٪ نیروی کمکی از تمام قلعه‌های هم‌مرز خودی (کلید A یا دابل‌کلیک)"
-                    className="py-1.5 px-2 bg-[#152822] hover:bg-[#1c382f] border-2 border-[#2b634e] hover:border-[#4ade80] text-[#a7f3d0] text-[11px] font-bold transition-colors flex items-center justify-between gap-1 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-1 truncate">
-                      <RallyIcon className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">کمکی هم‌مرز</span>
-                    </span>
-                    <span className="font-num text-[10px] opacity-80 shrink-0">[A]</span>
-                  </button>
-
-                  {sel.supplyTargetName ? (
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={(e) => {
-                        e.currentTarget.blur();
-                        onClearSupply();
-                      }}
-                      title={`لغو خط تأمین خودکار به «${sel.supplyTargetName}» (کلید S)`}
-                      className="py-1.5 px-2 bg-[#113128] hover:bg-[#1b4639] border-2 border-[#34d399] text-[#6ee7b7] text-[11px] font-bold transition-colors flex items-center justify-between gap-1 cursor-pointer"
-                    >
-                      <span className="flex items-center gap-1 truncate">
-                        <SupplyRouteIcon className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{sel.supplyTargetName}</span>
-                      </span>
-                      <span className="text-[10px] text-[#fca5a5] shrink-0">✕</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      disabled={sel.friendlyNeighborCount === 0}
-                      onClick={(e) => {
-                        e.currentTarget.blur();
-                        onToggleSupplyMode();
-                      }}
-                      title="ایجاد خط تأمین خودکار به قلعه هم‌مرز خودی (کلید S یا Shift+کلیک)"
-                      className={`py-1.5 px-2 border-2 text-[11px] font-bold transition-colors flex items-center justify-between gap-1 ${
-                        supplyMode
-                          ? 'bg-[#0f3529] border-[#34d399] text-[#a7f3d0] cursor-pointer'
-                          : sel.friendlyNeighborCount > 0
-                            ? 'bg-[#152433] hover:bg-[#1b3347] border-[#2e526b] hover:border-[#34d399] text-[#bae6fd] cursor-pointer'
-                            : 'bg-[#101827] border-[#1f2c40] text-[#64748b] cursor-not-allowed'
-                      }`}
-                    >
-                      <span className="flex items-center gap-1 truncate">
-                        <SupplyRouteIcon className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">
-                          {supplyMode ? 'مقصد را بزنید' : 'خط تأمین'}
-                        </span>
-                      </span>
-                      <span className="font-num text-[10px] opacity-80 shrink-0">[S]</span>
-                    </button>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onRally();
+                  }}
+                  title="فراخوانی ۵۰٪ نیروی کمکی از تمام قلعه‌های هم‌مرز خودی (کلید A یا دابل‌کلیک)"
+                  className="w-full py-1.5 px-2.5 bg-[#152822] hover:bg-[#1c382f] border-2 border-[#2b634e] hover:border-[#4ade80] text-[#a7f3d0] text-xs font-bold transition-colors flex items-center justify-between gap-2 cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <RallyIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span>فراخوانی کمکی هم‌مرز</span>
+                  </span>
+                  <span className="font-num text-[10px] opacity-80">[A]</span>
+                </button>
               )}
             </div>
           ) : (
@@ -349,7 +276,7 @@ export function CommandSidebar({
                         : 'bg-[#101827] border-[#1f2c40] text-[#64748b] cursor-not-allowed'
                   }`}
                 >
-                  <PowerSvg type={pType} />
+                  <PowerIcon type={pType} />
                   <span className="text-[11px] font-extrabold leading-tight whitespace-nowrap">
                     {cfg.name}
                   </span>
@@ -369,30 +296,23 @@ export function CommandSidebar({
           </div>
         </section>
 
-        {/* Section 4: 5 Strategic Pixel-Art Buildings (including Coastal Port) */}
+        {/* Section 4: 4 Strategic Pixel-Art Buildings */}
         <section>
           <div className="flex items-center justify-between mb-1.5">
             <h3 className="text-xs font-bold text-[#cbd5e1]">
               ساختمان‌های قلعه
             </h3>
             <span className="text-[11px] text-[#64748b]">
-              {sel?.isCoastal ? 'قلعه ساحلی · مناسب بندر' : 'هزینه از نیروی نظامی'}
+              هزینه از نیروی نظامی
             </span>
           </div>
 
           <div className="flex flex-col gap-1.5">
             {BUILDING_ORDER.map((type) => {
               const cfg = BUILDINGS[type];
-              const alreadyBuilt =
-                sel !== null &&
-                ((type === 'barracks' && sel.hasBarracks) ||
-                  (type === 'tower' && sel.hasTower) ||
-                  (type === 'mine' && sel.hasMine) ||
-                  (type === 'forge' && sel.hasForge) ||
-                  (type === 'port' && sel.hasPort));
-              const needsCoast = type === 'port' && sel !== null && !sel.isCoastal;
+              const alreadyBuilt = sel !== null && isBuildingBuilt(sel, type);
               const canAfford = isPlayerOwned && sel !== null && sel.military >= cfg.cost;
-              const disabled = !isPlayerOwned || alreadyBuilt || needsCoast || !canAfford;
+              const disabled = !isPlayerOwned || alreadyBuilt || !canAfford;
 
               return (
                 <button
@@ -404,19 +324,15 @@ export function CommandSidebar({
                     e.currentTarget.blur();
                     onBuild(type);
                   }}
-                  className={`w-full text-right px-2.5 py-1.5 border-2 transition-colors flex items-center gap-2.5 ${
+                  className={`w-full text-right px-2.5 py-2 border-2 transition-colors flex items-center gap-2.5 ${
                     alreadyBuilt
-                      ? type === 'port'
-                        ? 'bg-[#0f293b] border-[#38bdf8]/65 text-[#7dd3fc] cursor-default'
-                        : 'bg-[#152823] border-[#265c49] text-[#86efac] cursor-default'
+                      ? 'bg-[#152823] border-[#265c49] text-[#86efac] cursor-default'
                       : !disabled
-                        ? type === 'port'
-                          ? 'bg-[#13253b] hover:bg-[#1a3452] border-[#38bdf8]/55 hover:border-[#7dd3fc] text-[#e0f2fe] cursor-pointer'
-                          : 'bg-[#152033] hover:bg-[#1e2f4a] border-[#334866] hover:border-[#c99846] text-[#f6efe0] cursor-pointer'
+                        ? 'bg-[#152033] hover:bg-[#1e2f4a] border-[#334866] hover:border-[#c99846] text-[#f6efe0] cursor-pointer'
                         : 'bg-[#111a2a] border-[#1f2c40] text-[#64748b] cursor-not-allowed'
                   }`}
                 >
-                  <BuildingSvg type={type} />
+                  <BuildingIcon type={type} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-extrabold truncate">
@@ -428,8 +344,6 @@ export function CommandSidebar({
                       <span className="text-xs font-bold shrink-0">
                         {alreadyBuilt ? (
                           'ساخته شد'
-                        ) : needsCoast ? (
-                          <span className="text-[10px] text-[#64748b]">نیاز به ساحل</span>
                         ) : (
                           <>
                             <span className="font-num">{cfg.cost}</span>
@@ -439,9 +353,7 @@ export function CommandSidebar({
                       </span>
                     </div>
                     <div className="mt-0.5 text-[11px] opacity-80 truncate">
-                      {alreadyBuilt && type === 'port'
-                        ? 'روی هر قلعه ساحلی کلیک کنید تا ناوگان اعزام شود'
-                        : cfg.shortEffect}
+                      {cfg.shortEffect}
                     </div>
                   </div>
                 </button>
