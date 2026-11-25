@@ -5,6 +5,7 @@ import type {
   BuildingType,
   Difficulty,
   FactionConfig,
+  MapPreset,
   PowerConfig,
   PowerType,
 } from './types';
@@ -163,6 +164,48 @@ export const BUILDINGS: Record<BuildingType, BuildingConfig> = {
     cost: 32,
     hotkey: 'R',
   },
+  port: {
+    type: 'port',
+    name: 'بندرگاه',
+    shortEffect: 'حمله دریایی به تمام سواحل',
+    description: 'فقط در قلعه‌های ساحلی ساخته می‌شود؛ امکان یورش با کشتی جنگی به هر قلعه ساحلی در کل نقشه را باز می‌کند.',
+    cost: 28,
+    hotkey: 'T',
+  },
+};
+
+export interface MapPresetConfig {
+  id: MapPreset;
+  label: string;
+  shortTag: string;
+  description: string;
+}
+
+export const MAP_PRESETS: Record<MapPreset, MapPresetConfig> = {
+  continent: {
+    id: 'continent',
+    label: 'قاره کلاسیک',
+    shortTag: 'متعادل',
+    description: 'یک قاره پیوسته با نبردهای مرزی تمام‌عیار و سواحل پیرامونی.',
+  },
+  archipelago: {
+    id: 'archipelago',
+    label: 'مجمع‌الجزایر',
+    shortTag: 'جزیره‌ای + پل',
+    description: 'جزیره‌های جدا با پل‌های چوبی استراتژیک — بندرگاه و یورش دریایی سرنوشت‌ساز است.',
+  },
+  strait: {
+    id: 'strait',
+    label: 'تنگه مرکزی',
+    shortTag: 'گذرگاه خونین',
+    description: 'دو قاره شرقی و غربی متصل با یک تنگه باریک و آبراهه‌های مناسب دور زدن دشمن.',
+  },
+  middle_east: {
+    id: 'middle_east',
+    label: 'خاورمیانه پیکسلی',
+    shortTag: 'خلیج و شبه‌جزیره',
+    description: 'چیدمان استراتژیک الهام‌گرفته از خلیج فارس، دریای سرخ و سواحل مدیترانه.',
+  },
 };
 
 export const COMMANDER_POWERS: Record<PowerType, PowerConfig> = {
@@ -276,6 +319,7 @@ export const ECONOMY = {
   BLITZ_SPEED_MULTIPLIER: 2.0,
   MOBILIZE_RATIO: 0.6,
   TROOP_SPEED: 132,
+  NAVAL_SPEED: 108,
   START_PLAYER_MANPOWER: 32,
   START_PLAYER_MILITARY: 24,
   START_AI_MANPOWER: 28,

@@ -323,4 +323,16 @@ export function LogScrollIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-
+export function PortAnchorIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
+      {/* Pixel Anchor + Sea Wave */}
+      <rect x="10" y="3" width="4" height="4" stroke="#7dd3fc" strokeWidth="2" />
+      <rect x="11" y="7" width="2" height="11" fill="#38bdf8" />
+      <rect x="7" y="9" width="10" height="2" fill="#bae6fd" />
+      <path d="M5 14V17H8V19H16V17H19V14" stroke="#38bdf8" strokeWidth="2" strokeLinecap="square" />
+      <rect x="4" y="13" width="3" height="2" fill="#e0f2fe" />
+      <rect x="17" y="13" width="3" height="2" fill="#e0f2fe" />
+    </svg>
+  );
+}

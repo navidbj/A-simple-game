@@ -1,7 +1,7 @@
 import { BIOMES, ECONOMY, FACTIONS, NEUTRAL_STYLE, WORLD_HEIGHT, WORLD_WIDTH } from './constants';
 import { ParticleSystem } from './particles';
 import { PixelSpriteAtlas } from './pixelSprites';
-import { previewAttackOutcome } from './simulation';
+import { canDispatchTo, computeNavalRoute, previewAttackOutcome } from './simulation';
 import type {
   DragAimState,
   FloatingText,
@@ -110,8 +110,15 @@ export class GameRenderer {
               ? 'برج دفاعی ساخته شد'
               : ev.building === 'forge'
                 ? 'آهنگری نبرد فعال شد'
-                : 'معدن طلا فعال شد';
-        this.spawnFloatingText(ev.x, ev.y - 12, label, '#fde68a');
+                : ev.building === 'port'
+                  ? 'بندرگاه آماده یورش دریایی!'
+                  : 'معدن طلا فعال شد';
+        this.spawnFloatingText(
+          ev.x,
+          ev.y - 12,
+          label,
+          ev.building === 'port' ? '#7dd3fc' : '#fde68a'
+        );
       } else if (ev.type === 'power') {
         if (ev.power === 'mobilize') {
           this.spawnFloatingText(ev.x, ev.y - 14, `بسیج +${ev.amount ?? 0}`, '#fde047');
@@ -339,17 +346,22 @@ export class GameRenderer {
     this.bgCtx.putImageData(imgData, 0, 0);
     this.bgCtx.imageSmoothingEnabled = false;
 
-    // Draw pixel cobbled stone roads connecting neighboring castles across shared borders
+    // Draw pixel cobbled stone roads & strategic 16-bit wooden sea bridges connecting neighboring castles
     this.bgCtx.save();
     for (const t of territories) {
       for (const nId of t.neighbors) {
         if (t.id >= nId) continue;
         const n = territories[nId];
+        const isBridge = t.bridgeNeighbors.includes(nId);
         const via = t.borderCrossings[nId] ?? {
           x: (t.x + n.x) * 0.5,
           y: (t.y + n.y) * 0.5,
         };
-        this.drawPixelRoad(this.bgCtx, t.x, t.y, via.x, via.y, n.x, n.y);
+        if (isBridge) {
+          this.drawPixelBridge(this.bgCtx, map, t.x, t.y, n.x, n.y);
+        } else {
+          this.drawPixelRoad(this.bgCtx, t.x, t.y, via.x, via.y, n.x, n.y);
+        }
       }
     }
     this.bgCtx.restore();
@@ -411,6 +423,65 @@ export class GameRenderer {
       ctx.fillRect(px - 2, py - 2, 5, 5);
       ctx.fillStyle = i % 2 === 0 ? 'rgba(229, 214, 179, 0.62)' : 'rgba(196, 179, 143, 0.52)';
       ctx.fillRect(px - 1, py - 1, 3, 3);
+    }
+  }
+
+  /** Draws an authentic 16-bit wooden timber bridge with stone pilings across ocean channels */
+  private drawPixelBridge(
+    ctx: CanvasRenderingContext2D,
+    map: GameSimulation['map'],
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number
+  ) {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dist = Math.hypot(dx, dy) || 1;
+    const nx = -dy / dist;
+    const ny = dx / dist;
+    const steps = Math.max(14, Math.floor(dist / 6));
+
+    for (let i = 2; i < steps - 1; i++) {
+      const u = i / steps;
+      const fx = x0 + dx * u;
+      const fy = y0 + dy * u;
+      const gx = Math.floor(fx / map.step);
+      const gy = Math.floor(fy / map.step);
+      const overWater =
+        gx < 0 || gy < 0 || gx >= map.cols || gy >= map.rows || map.cells[gy * map.cols + gx] === -1;
+
+      const px = Math.round(fx);
+      const py = Math.round(fy);
+
+      if (overWater) {
+        // Water shadow & wooden piling under every 4th plank
+        if (i % 4 === 0) {
+          ctx.fillStyle = 'rgba(7, 16, 30, 0.65)';
+          ctx.fillRect(px - 4, py + 3, 9, 5);
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(px - 2, py + 2, 5, 4);
+        }
+        // Timber railing outline
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(Math.round(px + nx * 5) - 1, Math.round(py + ny * 5) - 1, 3, 3);
+        ctx.fillRect(Math.round(px - nx * 5) - 1, Math.round(py - ny * 5) - 1, 3, 3);
+        // Warm oak bridge deck planks
+        ctx.fillStyle = '#29170b';
+        ctx.fillRect(px - 4, py - 4, 8, 8);
+        ctx.fillStyle = i % 2 === 0 ? '#b47b45' : '#966130';
+        ctx.fillRect(px - 3, py - 3, 6, 6);
+        // Rail highlight posts
+        ctx.fillStyle = '#d6a56e';
+        ctx.fillRect(Math.round(px + nx * 4), Math.round(py + ny * 4), 2, 2);
+        ctx.fillRect(Math.round(px - nx * 4), Math.round(py - ny * 4), 2, 2);
+      } else {
+        // Cobble approach on land leading onto bridge
+        ctx.fillStyle = 'rgba(15, 20, 30, 0.45)';
+        ctx.fillRect(px - 2, py - 2, 5, 5);
+        ctx.fillStyle = 'rgba(229, 214, 179, 0.64)';
+        ctx.fillRect(px - 1, py - 1, 3, 3);
+      }
     }
   }
 
@@ -534,54 +605,74 @@ export class GameRenderer {
       this.drawIncomingThreats(ctx, sim, timeSec, threatenedPlayerIds);
     }
 
-    // 4. Highlight Valid Border Attack / Reinforce Routes when a player castle is selected
+    // 4. Highlight Valid Border Routes & Naval Sea Lanes when a player castle is selected
     if (activeOrigin && activeOrigin.owner === 0 && !isTitleBackdrop) {
       this.drawSelectedRoutes(ctx, sim, activeOrigin, activeHoverId, timeSec, supplyMode);
+      if (!supplyMode && activeOrigin.hasPort && activeOrigin.isCoastal) {
+        this.drawNavalRoutes(ctx, sim, activeOrigin, activeHoverId, timeSec);
+      }
     }
 
     // 5. Pixel Hover Target Corner Brackets
     if (activeHoverId !== null && activeHoverId !== activeOriginId && !isTitleBackdrop) {
       const hov = sim.territories[activeHoverId];
       if (hov) {
-        const isLegalTarget =
-          activeOrigin !== null &&
-          activeOrigin.owner === 0 &&
-          activeOrigin.neighbors.includes(hov.id);
+        const dispatchInfo =
+          activeOrigin !== null && activeOrigin.owner === 0
+            ? canDispatchTo(sim, activeOrigin.id, hov.id)
+            : { allowed: false, isNaval: false };
+        const isLandNeighbor =
+          activeOrigin !== null && activeOrigin.neighbors.includes(hov.id);
         const col = supplyMode
-          ? isLegalTarget && hov.owner === 0
+          ? isLandNeighbor && hov.owner === 0
             ? '#34d399'
             : '#f87171'
-          : isLegalTarget
-            ? hov.owner === 0
-              ? '#4ade80'
-              : '#fde047'
+          : dispatchInfo.allowed
+            ? dispatchInfo.isNaval
+              ? '#38bdf8'
+              : hov.owner === 0
+                ? '#4ade80'
+                : '#fde047'
             : 'rgba(237, 231, 217, 0.6)';
         this.drawPixelBrackets(ctx, hov.x, hov.y - 4, 34, col);
+      }
+    }
+
+    // 5b. Render Constructed Coastal Ports (piers + pulsing lighthouses on shoreline)
+    for (const t of sim.territories) {
+      if (t.hasPort && t.coastPoint) {
+        this.drawPixelPort(ctx, t, timeSec);
       }
     }
 
     // 6. Render Pixel-Art Castles & Annex Buildings (sorted top-to-bottom for depth)
     const sortedTerritories = [...sim.territories].sort((a, b) => a.y - b.y);
     for (const t of sortedTerritories) {
+      const dispatchCheck =
+        !isTitleBackdrop && activeOrigin !== null && activeOrigin.owner === 0
+          ? canDispatchTo(sim, activeOrigin.id, t.id)
+          : { allowed: false, isNaval: false };
       this.drawPixelCastle(
         ctx,
         t,
         !isTitleBackdrop && activeOriginId === t.id,
-        !isTitleBackdrop &&
-          activeOrigin !== null &&
-          activeOrigin.owner === 0 &&
-          activeOrigin.neighbors.includes(t.id),
+        dispatchCheck.allowed && !supplyMode,
+        dispatchCheck.isNaval && !supplyMode,
         !isTitleBackdrop && threatenedPlayerIds.has(t.id),
         timeSec,
         isTitleBackdrop
       );
     }
 
-    // 7. Render Animated Marching Pixel-Art Soldier Squads (sorted top-to-bottom)
+    // 7. Render Animated Marching Pixel-Art Soldier Squads & Naval Warships (sorted top-to-bottom)
     const sortedTroops = [...sim.troops].sort((a, b) => a.y - b.y);
     const blitzActive = sim.powers.blitzTimer > 0;
     for (const tr of sortedTroops) {
-      this.drawPixelSoldierSquad(ctx, tr, timeSec, blitzActive && tr.owner === 0);
+      if (tr.isNaval) {
+        this.drawPixelWarshipFleet(ctx, tr, timeSec, blitzActive && tr.owner === 0);
+      } else {
+        this.drawPixelSoldierSquad(ctx, tr, timeSec, blitzActive && tr.owner === 0);
+      }
     }
 
     // 8. Live Drag-to-Attack Pixel Trajectory Arrow
@@ -589,14 +680,14 @@ export class GameRenderer {
       this.drawDragAimLine(ctx, sim, dragAim, timeSec);
     }
 
-    // 9. Live Tactical Attack/Reinforce Preview Tooltip + Selected Castle Nameplate
+    // 9. Live Tactical Attack/Reinforce/Naval Preview Tooltip + Selected Castle Nameplate
     if (!isTitleBackdrop) {
       if (
         activeOrigin &&
         activeOrigin.owner === 0 &&
         activeHoverId !== null &&
         activeHoverId !== activeOrigin.id &&
-        activeOrigin.neighbors.includes(activeHoverId)
+        canDispatchTo(sim, activeOrigin.id, activeHoverId).allowed
       ) {
         this.drawTacticalPreview(ctx, sim, activeOrigin.id, activeHoverId, sendRatio);
       } else if (activeHoverId !== null) {
@@ -662,9 +753,11 @@ export class GameRenderer {
     if (dist < 14) return;
 
     const lineColor = dragAim.isValidTarget
-      ? dragAim.isFriendlyTarget
-        ? '#4ade80'
-        : '#fde047'
+      ? dragAim.isNavalTarget
+        ? '#38bdf8'
+        : dragAim.isFriendlyTarget
+          ? '#4ade80'
+          : '#fde047'
       : dragAim.hoverTargetId !== null && dragAim.hoverTargetId !== dragAim.originId
         ? '#f87171'
         : '#cbd5e1';
@@ -752,27 +845,30 @@ export class GameRenderer {
     let borderColor: string;
     let textColor: string;
 
+    const prefix = preview.isNaval ? 'یورش دریایی' : 'حمله';
     if (preview.sendAmount < 1) {
       label = 'نیرو کافی نیست';
       borderColor = '#64748b';
       textColor = '#cbd5e1';
     } else if (preview.isFriendly) {
-      label = `پشتیبانی +${preview.sendAmount}`;
-      borderColor = '#4ade80';
-      textColor = '#bbf7d0';
+      label = preview.isNaval
+        ? `تدارکات دریایی +${preview.sendAmount}`
+        : `پشتیبانی +${preview.sendAmount}`;
+      borderColor = preview.isNaval ? '#38bdf8' : '#4ade80';
+      textColor = preview.isNaval ? '#bae6fd' : '#bbf7d0';
     } else if (preview.willConquer) {
-      label = `حمله ${preview.sendAmount} · پیروزی محتمل`;
-      borderColor = '#fde047';
-      textColor = '#fef08a';
+      label = `${prefix} ${preview.sendAmount} · پیروزی محتمل`;
+      borderColor = preview.isNaval ? '#38bdf8' : '#fde047';
+      textColor = preview.isNaval ? '#e0f2fe' : '#fef08a';
     } else if (preview.advantageRatio >= 0.65) {
-      label = `حمله ${preview.sendAmount} · نبرد نزدیک`;
+      label = `${prefix} ${preview.sendAmount} · نبرد نزدیک`;
       borderColor = '#fb923c';
       textColor = '#fed7aa';
     } else {
       label =
         preview.defenseBonusPct > 0
-          ? `حمله ${preview.sendAmount} · دفاع -${preview.defenseBonusPct}%`
-          : `حمله ${preview.sendAmount} · دفاع سنگین`;
+          ? `${prefix} ${preview.sendAmount} · دفاع -${preview.defenseBonusPct}%`
+          : `${prefix} ${preview.sendAmount} · دفاع سنگین`;
       borderColor = '#f87171';
       textColor = '#fecaca';
     }
@@ -950,11 +1046,79 @@ export class GameRenderer {
     ctx.restore();
   }
 
+  /** Draws animated cyan sea-lane arc when a Port castle hovers a distant coastal target */
+  private drawNavalRoutes(
+    ctx: CanvasRenderingContext2D,
+    sim: GameSimulation,
+    origin: Territory,
+    hoveredId: number | null,
+    timeSec: number
+  ) {
+    if (hoveredId === null || hoveredId === origin.id) return;
+    if (origin.neighbors.includes(hoveredId)) return;
+    const target = sim.territories[hoveredId];
+    if (!target || !target.isCoastal) return;
+
+    const route = computeNavalRoute(sim, origin, target);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(route.startX, route.startY);
+    ctx.quadraticCurveTo(route.viaX, route.viaY, route.targetX, route.targetY);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    const dotCount = 16;
+    const phase = (timeSec * 1.8) % 1;
+    for (let i = 0; i < dotCount; i++) {
+      const u = (i + phase) / dotCount;
+      if (u < 0.06 || u > 0.94) continue;
+      const mu = 1 - u;
+      const px = Math.round(mu * mu * route.startX + 2 * mu * u * route.viaX + u * u * route.targetX);
+      const py = Math.round(mu * mu * route.startY + 2 * mu * u * route.viaY + u * u * route.targetY);
+      ctx.fillStyle = '#090e18';
+      ctx.fillRect(px - 3, py - 3, 6, 6);
+      ctx.fillStyle = target.owner === origin.owner ? '#6ee7b7' : '#7dd3fc';
+      ctx.fillRect(px - 2, py - 2, 4, 4);
+    }
+    ctx.restore();
+  }
+
+  /** Draws a 16-bit coastal Port pier + pulsing lighthouse beacon right on the shoreline */
+  private drawPixelPort(ctx: CanvasRenderingContext2D, t: Territory, timeSec: number) {
+    if (!t.coastPoint) return;
+    const sprites = this.atlas.getFaction(t.owner);
+    const pw = sprites.port.width * 2;
+    const ph = sprites.port.height * 2;
+    const px = Math.round(t.coastPoint.x - pw * 0.5);
+    const py = Math.round(t.coastPoint.y - ph * 0.65);
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    // Soft cyan harbor ripple under pier pilings
+    const wavePulse = Math.floor(timeSec * 3.5 + t.id) % 2;
+    ctx.fillStyle = 'rgba(125, 211, 252, 0.38)';
+    ctx.fillRect(px + 2 + wavePulse * 2, py + ph - 2, pw - 6, 2);
+
+    ctx.drawImage(sprites.port, px, py, pw, ph);
+
+    // Subtle pulsing warm lighthouse lamp glow at lighthouse crown
+    const lampStep = Math.floor((0.5 + 0.5 * Math.sin(timeSec * 4.2 + t.id)) * 4);
+    if (lampStep >= 1) {
+      ctx.fillStyle = `rgba(254, 240, 138, ${(0.18 + lampStep * 0.14).toFixed(2)})`;
+      ctx.fillRect(px + 2, py + 1, 8, 6);
+      ctx.fillStyle = lampStep === 3 ? '#ffffff' : '#fde047';
+      ctx.fillRect(px + 4, py + 2, 4, 3);
+    }
+    ctx.restore();
+  }
+
   private drawPixelCastle(
     ctx: CanvasRenderingContext2D,
     t: Territory,
     isSelected: boolean,
     isValidTarget: boolean,
+    isNavalTarget: boolean,
     isThreatened: boolean,
     timeSec: number,
     isTitleBackdrop: boolean
@@ -980,7 +1144,7 @@ export class GameRenderer {
       ctx.globalAlpha = 1;
     }
 
-    // 2. Selection / Target / Threat pixel brackets
+    // 2. Selection / Target / Naval / Threat pixel brackets
     if (isSelected) {
       const stepOffset = Math.sin(timeSec * 6) > 0 ? 1 : 0;
       this.drawPixelBrackets(ctx, cx, cy - 4, 34 + stepOffset, '#fde047');
@@ -993,7 +1157,11 @@ export class GameRenderer {
         cx,
         cy - 4,
         30,
-        t.owner === 0 ? 'rgba(74, 222, 128, 0.75)' : 'rgba(251, 191, 36, 0.75)'
+        isNavalTarget
+          ? 'rgba(56, 189, 248, 0.85)'
+          : t.owner === 0
+            ? 'rgba(74, 222, 128, 0.75)'
+            : 'rgba(251, 191, 36, 0.75)'
       );
     }
 
@@ -1298,6 +1466,92 @@ export class GameRenderer {
     ctx.fillStyle = '#090e18';
     ctx.fillRect(bx - 2, by - 2, badgeW + 4, badgeH + 4);
     ctx.fillStyle = tr.isElite ? '#fde047' : faction.borderGlow;
+    ctx.fillRect(bx - 1, by - 1, badgeW + 2, badgeH + 2);
+    ctx.fillStyle = faction.color;
+    ctx.fillRect(bx, by, badgeW, badgeH);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(countText, cx, by + 8);
+
+    ctx.restore();
+  }
+
+  /** Renders an animated 16-bit Pixel-Art Medieval Warship Fleet sailing over water */
+  private drawPixelWarshipFleet(
+    ctx: CanvasRenderingContext2D,
+    tr: GameSimulation['troops'][number],
+    timeSec: number,
+    blitzBoost: boolean
+  ) {
+    const faction = FACTIONS[tr.owner];
+    const sprites = this.atlas.getFaction(tr.owner);
+
+    const cx = Math.round(tr.x);
+    const cy = Math.round(tr.y);
+    const animSpeed = blitzBoost ? 9 : 5;
+    const frameIdx = Math.floor(timeSec * animSpeed + tr.id * 1.3) % 2;
+    const bob = Math.round(Math.sin(timeSec * 4.5 + tr.id) * 1.4);
+
+    const ships: Array<{ ox: number; oy: number; elite: boolean; scale: number }> =
+      tr.count >= 24 || tr.isElite
+        ? [
+            { ox: -10, oy: -4, elite: false, scale: 1.65 },
+            { ox: 8, oy: 4, elite: tr.isElite, scale: 1.9 },
+          ]
+        : [{ ox: 0, oy: 0, elite: tr.isElite, scale: 1.95 }];
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+
+    const trailDir = tr.facingLeft ? 1 : -1;
+
+    // Animated V-shaped white/cyan pixel sea-wake trailing behind the fleet
+    const wakePhase = Math.floor(timeSec * 8 + tr.id) % 3;
+    ctx.fillStyle = 'rgba(186, 230, 253, 0.65)';
+    ctx.fillRect(cx + trailDir * (14 + wakePhase * 3), cy + 5, 6, 2);
+    ctx.fillRect(cx + trailDir * (18 + wakePhase * 2), cy + 9, 5, 2);
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.48)';
+    ctx.fillRect(cx + trailDir * (21 + wakePhase * 3), cy + 7, 6, 2);
+
+    for (const s of ships) {
+      const spr = s.elite
+        ? frameIdx === 0
+          ? sprites.eliteShipA
+          : sprites.eliteShipB
+        : frameIdx === 0
+          ? sprites.shipA
+          : sprites.shipB;
+      const dw = Math.round(spr.width * s.scale);
+      const dh = Math.round(spr.height * s.scale);
+      const ux = Math.round(cx + s.ox);
+      const uy = Math.round(cy + s.oy + bob);
+
+      // Soft dark sea reflection under wooden hull
+      ctx.fillStyle = 'rgba(7, 18, 34, 0.55)';
+      ctx.fillRect(ux - Math.round(dw * 0.38), uy + Math.round(dh * 0.28), Math.round(dw * 0.76), 4);
+
+      ctx.save();
+      ctx.translate(ux, uy);
+      if (tr.facingLeft) {
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(spr, -Math.round(dw * 0.5), -Math.round(dh * 0.58), dw, dh);
+      ctx.restore();
+    }
+
+    // Crisp Cyan-Trimmed Pixel Fleet Count Badge floating above main mast
+    const countText = `${Math.floor(tr.count)}`;
+    const badgeW = Math.max(26, countText.length * 8 + 12);
+    const badgeH = 15;
+    const bx = cx - Math.round(badgeW / 2);
+    const by = cy - 30 + bob;
+
+    ctx.fillStyle = '#090e18';
+    ctx.fillRect(bx - 2, by - 2, badgeW + 4, badgeH + 4);
+    ctx.fillStyle = '#38bdf8';
     ctx.fillRect(bx - 1, by - 1, badgeW + 2, badgeH + 2);
     ctx.fillStyle = faction.color;
     ctx.fillRect(bx, by, badgeW, badgeH);

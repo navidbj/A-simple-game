@@ -13,6 +13,7 @@ import { DIFFICULTIES, SEND_RATIOS } from './game/constants';
 import { GameRenderer } from './game/renderer';
 import {
   buildStructure,
+  canDispatchTo,
   clearSupplyRoute,
   computeBattleIntensity,
   computeFactionPowers,
@@ -36,6 +37,7 @@ import type {
   GamePhase,
   GameSimulation,
   HudSnapshot,
+  MapPreset,
   PowerType,
   SimEvent,
 } from './game/types';
@@ -73,6 +75,16 @@ function getInitialSeed(): number {
   return Number.isFinite(s) && s > 0 ? Math.floor(s) : makeRandomSeed();
 }
 
+function getInitialPreset(): MapPreset {
+  if (typeof window === 'undefined') return 'continent';
+  const params = new URLSearchParams(window.location.search);
+  const p = params.get('preset');
+  if (p === 'archipelago' || p === 'strait' || p === 'middle_east' || p === 'continent') {
+    return p;
+  }
+  return 'continent';
+}
+
 function getTestEndMode(): 'victory' | 'defeat' | null {
   if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
@@ -89,6 +101,7 @@ function createIdleDragAim(): DragAimState {
     hoverTargetId: null,
     isValidTarget: false,
     isFriendlyTarget: false,
+    isNavalTarget: false,
   };
 }
 
@@ -142,6 +155,8 @@ function buildHudSnapshot(
       hasTower: sel.hasTower,
       hasMine: sel.hasMine,
       hasForge: sel.hasForge,
+      hasPort: sel.hasPort,
+      isCoastal: sel.isCoastal,
       shieldTimer: sel.shieldTimer,
       neighborCount: sel.neighbors.length,
       friendlyNeighborCount,
@@ -154,6 +169,7 @@ function buildHudSnapshot(
     phase,
     outcome: sim.outcome,
     difficulty: sim.difficulty,
+    mapPreset: sim.preset,
     sendRatio,
     selectedId,
     selectedTerritory,
@@ -176,13 +192,17 @@ export default function App() {
   const autoStart = getInitialAutoStart();
   const initialDifficulty: Difficulty = 'normal';
   const initialSeed = getInitialSeed();
+  const initialPreset = getInitialPreset();
   const viewport = useViewportMode();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<GameRenderer | null>(null);
-  const simRef = useRef<GameSimulation>(createInitialMatch(initialSeed, initialDifficulty));
+  const simRef = useRef<GameSimulation>(
+    createInitialMatch(initialSeed, initialDifficulty, initialPreset)
+  );
   const phaseRef = useRef<GamePhase>(autoStart ? 'playing' : 'title');
   const difficultyRef = useRef<Difficulty>(initialDifficulty);
+  const presetRef = useRef<MapPreset>(initialPreset);
   const sendRatioRef = useRef<number>(0.5);
   const speedRef = useRef<GameSpeed>(1);
   const selectedIdRef = useRef<number | null>(
@@ -295,9 +315,11 @@ export default function App() {
   }, []);
 
   const startFreshMatch = useCallback(
-    (seed?: number, nextPhase: GamePhase = 'playing') => {
+    (seed?: number, nextPhase: GamePhase = 'playing', nextPreset?: MapPreset) => {
       const nextSeed = seed ?? makeRandomSeed();
-      simRef.current = createInitialMatch(nextSeed, difficultyRef.current);
+      const preset = nextPreset ?? presetRef.current;
+      presetRef.current = preset;
+      simRef.current = createInitialMatch(nextSeed, difficultyRef.current, preset);
       rendererRef.current?.clearEffects();
       selectedIdRef.current =
         simRef.current.territories.find((t) => t.owner === 0)?.id ?? null;
@@ -336,6 +358,14 @@ export default function App() {
       syncHud();
     },
     [syncHud]
+  );
+
+  const handleSelectMapPreset = useCallback(
+    (preset: MapPreset) => {
+      soundEngine.playSelect();
+      startFreshMatch(makeRandomSeed(), 'title', preset);
+    },
+    [startFreshMatch]
   );
 
   const handlePreviewNewMap = useCallback(() => {
@@ -421,8 +451,13 @@ export default function App() {
       const events: SimEvent[] = [];
       const res = dispatchTroops(simRef.current, fromId, toId, ratio, 0, events);
       if (res.ok) {
-        soundEngine.playDispatch();
+        if (res.isNaval) {
+          soundEngine.playNavalLaunch();
+        } else {
+          soundEngine.playDispatch();
+        }
         rendererRef.current?.consumeEvents(events);
+        pushBattleEvents(events);
         syncHud();
         return true;
       }
@@ -430,7 +465,7 @@ export default function App() {
       showToast('نیروی نظامی کافی برای اعزام وجود ندارد.', 'error');
       return false;
     },
-    [showToast, syncHud]
+    [pushBattleEvents, showToast, syncHud]
   );
 
   const rallyForCastle = useCallback(
@@ -597,10 +632,14 @@ export default function App() {
     const sel = simRef.current.territories[selId];
     if (!sel || sel.owner !== 0) return;
 
-    // Prefer currently hovered valid neighbor, else pick weakest adjacent enemy/neutral castle
+    // Prefer currently hovered valid target (land neighbor or naval coastal raid), else weakest adjacent enemy
     const hovId = hoveredIdRef.current;
     let targetId: number | null = null;
-    if (hovId !== null && hovId !== sel.id && sel.neighbors.includes(hovId)) {
+    if (
+      hovId !== null &&
+      hovId !== sel.id &&
+      canDispatchTo(simRef.current, sel.id, hovId).allowed
+    ) {
       targetId = hovId;
     } else {
       const weakest = getWeakestEnemyNeighbor(simRef.current, sel.id);
@@ -696,7 +735,11 @@ export default function App() {
         }
         if (session.hasDragged) {
           const targetId = hit && hit.id !== origin.id ? hit.id : null;
-          const isValidTarget = targetId !== null && origin.neighbors.includes(targetId);
+          const dispatchCheck =
+            targetId !== null
+              ? canDispatchTo(simRef.current, origin.id, targetId)
+              : { allowed: false, isNaval: false };
+          const isValidTarget = dispatchCheck.allowed;
           const isFriendlyTarget =
             isValidTarget && targetId !== null && simRef.current.territories[targetId]?.owner === 0;
           dragAimRef.current = {
@@ -707,6 +750,7 @@ export default function App() {
             hoverTargetId: targetId,
             isValidTarget,
             isFriendlyTarget,
+            isNavalTarget: dispatchCheck.isNaval,
           };
         }
       }
@@ -742,7 +786,7 @@ export default function App() {
         const drag = dragAimRef.current;
         dragAimRef.current = createIdleDragAim();
         if (drag.hoverTargetId !== null && drag.isValidTarget) {
-          if ((e.shiftKey || supplyModeRef.current) && drag.isFriendlyTarget) {
+          if ((e.shiftKey || supplyModeRef.current) && drag.isFriendlyTarget && !drag.isNavalTarget) {
             handleLinkSupply(drag.originId, drag.hoverTargetId);
           } else {
             setSupplyModeSynced(false);
@@ -751,7 +795,7 @@ export default function App() {
         } else if (drag.hoverTargetId !== null && !drag.isValidTarget) {
           setSupplyModeSynced(false);
           soundEngine.playError();
-          showToast('فقط به سرزمین‌های هم‌مرز (متصل با خط‌چین) می‌توانید حمله کنید.', 'error');
+          showToast('فقط به سرزمین‌های هم‌مرز (یا با ساخت بندرگاه به قلعه‌های ساحلی) می‌توانید حمله کنید.', 'error');
         }
         return;
       }
@@ -829,8 +873,8 @@ export default function App() {
         return;
       }
 
-      // 3. Clicked adjacent neighbor -> dispatch troops across shared border!
-      if (currentSel.neighbors.includes(clicked.id)) {
+      // 3. Clicked adjacent neighbor OR coastal Naval Raid target from a Port castle!
+      if (canDispatchTo(simRef.current, currentSel.id, clicked.id).allowed) {
         executeDispatch(currentSel.id, clicked.id, sendRatioRef.current);
         return;
       }
@@ -843,9 +887,9 @@ export default function App() {
         return;
       }
 
-      // 5. Clicked non-adjacent enemy/neutral castle -> inform border rule
+      // 5. Clicked non-adjacent enemy/neutral castle without Port sea access -> inform rule
       soundEngine.playError();
-      showToast('فقط به سرزمین‌های هم‌مرز (متصل با خط‌چین) می‌توانید حمله کنید.', 'error');
+      showToast('فقط به سرزمین‌های هم‌مرز (یا با ساخت بندرگاه به قلعه‌های ساحلی) می‌توانید حمله کنید.', 'error');
     },
     [
       executeDispatch,
@@ -880,7 +924,13 @@ export default function App() {
       const selId = selectedIdRef.current;
       const sel = selId !== null ? simRef.current.territories[selId] : null;
 
-      if (sel && sel.owner === 0 && clicked && clicked.id !== sel.id && sel.neighbors.includes(clicked.id)) {
+      if (
+        sel &&
+        sel.owner === 0 &&
+        clicked &&
+        clicked.id !== sel.id &&
+        canDispatchTo(simRef.current, sel.id, clicked.id).allowed
+      ) {
         executeDispatch(sel.id, clicked.id, 1.0);
         return;
       }
@@ -979,6 +1029,7 @@ export default function App() {
       else if (code === 'KeyW') handleBuild('tower');
       else if (code === 'KeyE') handleBuild('mine');
       else if (code === 'KeyR') handleBuild('forge');
+      else if (code === 'KeyT') handleBuild('port');
       else if (code === 'KeyZ') handleTriggerPower('mobilize');
       else if (code === 'KeyX') handleTriggerPower('blitz');
       else if (code === 'KeyC') handleTriggerPower('shield');
@@ -1206,6 +1257,7 @@ export default function App() {
           className="relative flex-1 min-w-0 min-h-0 bg-[#0c1626]"
           data-testid="map-stage"
           data-seed={hud.mapSeed}
+          data-preset={hud.mapPreset}
           data-speed={gameSpeed}
           data-player-territories={hud.playerTerritories}
           data-selected-id={hud.selectedId ?? ''}
@@ -1271,8 +1323,10 @@ export default function App() {
       {hud.phase === 'title' && (
         <TitleOverlay
           difficulty={hud.difficulty}
+          mapPreset={hud.mapPreset}
           isShortLandscape={viewport.isShortLandscape}
           onSelectDifficulty={handleSelectDifficulty}
+          onSelectMapPreset={handleSelectMapPreset}
           onStart={handleStartFromTitle}
           onPreviewNewMap={handlePreviewNewMap}
         />

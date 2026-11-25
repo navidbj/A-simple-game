@@ -184,6 +184,89 @@ const FORGE_GRID = [
   '.KKKKKKKKKK.',
 ];
 
+const PORT_GRID = [
+  '..KK..........',
+  '.KYYK.........',
+  '.KWWK....K....',
+  '.KRRK...KPK...',
+  '.KWWK...KPPK..',
+  '.KRRK...KPK...',
+  'KWWWWKKKKKKK..',
+  'KBBBBBBBBBBBK.',
+  'KDBDBDBDBDBDK.',
+  '.K.K..K..K.K..',
+  '.K.K..K..K.K..',
+];
+
+// 4b. Animated 16x14 16-Bit Pixel-Art Medieval Warship (2 Wave / Sail Frames)
+const SHIP_FRAME_A = [
+  '.......KK.......',
+  '......KRRK......',
+  '......K.K.......',
+  '....KKKKKKK.....',
+  '...KWWWRWWWK....',
+  '...KWWWRWWWK....',
+  '...KWWPRRWWK....',
+  '...KLLPRRLLK....',
+  '....KKKKKKK.....',
+  '.KKKKKKBKKKKKK..',
+  '..KBBBBBBBBBK...',
+  '...KDDGDDGDK....',
+  '..CCKKKKKKKCC...',
+  '....CC...CC.....',
+];
+
+const SHIP_FRAME_B = [
+  '................',
+  '.......KK.......',
+  '......KRRRK.....',
+  '......K.K.......',
+  '....KKKKKKK.....',
+  '...KWWWRWWWK....',
+  '...KWWPRRWWK....',
+  '...KLLPRRLLK....',
+  '....KKKKKKK.....',
+  '.KKKKKKBKKKKKK..',
+  '..KBBBBBBBBBK...',
+  '...KDDGDDGDK....',
+  '.CC.KKKKKKK.CC..',
+  '..CC.......CC...',
+];
+
+const ELITE_SHIP_FRAME_A = [
+  '.......KGGK.....',
+  '......KRRRK.....',
+  '......K.K.......',
+  '...KKKKKKKKK....',
+  '..KGGWWRWWGGK...',
+  '..KGGWPRRWGGK...',
+  '..KGGWPRRWGGK...',
+  '..KGGLLRRLLGK...',
+  '...KKKKKKKKK....',
+  '.KKKKKKGKKKKKK..',
+  '..KBBGGBBGGBK...',
+  '...KDDDDDDDK....',
+  '..CCKKKKKKKCC...',
+  '....CC...CC.....',
+];
+
+const ELITE_SHIP_FRAME_B = [
+  '................',
+  '.......KGGK.....',
+  '......KRRRK.....',
+  '......K.K.......',
+  '...KKKKKKKKK....',
+  '..KGGWWRWWGGK...',
+  '..KGGWPRRWGGK...',
+  '..KGGLLRRLLGK...',
+  '...KKKKKKKKK....',
+  '.KKKKKKGKKKKKK..',
+  '..KBBGGBBGGBK...',
+  '...KDDDDDDDK....',
+  '.CC.KKKKKKK.CC..',
+  '..CC.......CC...',
+];
+
 // 5. Pixel-Art Terrain Props (Trees, Pines, Mountains, Wheat)
 const PINE_GRID = [
   '....K....',
@@ -233,10 +316,15 @@ export interface FactionSprites {
   castle: HTMLCanvasElement;
   castleFlash: HTMLCanvasElement;
   barracks: HTMLCanvasElement;
+  port: HTMLCanvasElement;
   soldierA: HTMLCanvasElement;
   soldierB: HTMLCanvasElement;
   eliteA: HTMLCanvasElement;
   eliteB: HTMLCanvasElement;
+  shipA: HTMLCanvasElement;
+  shipB: HTMLCanvasElement;
+  eliteShipA: HTMLCanvasElement;
+  eliteShipB: HTMLCanvasElement;
 }
 
 export class PixelSpriteAtlas {
@@ -351,14 +439,41 @@ export class PixelSpriteAtlas {
       R: primary,
     };
 
+    const portPalette: PaletteMap = {
+      K: '#0b101a',
+      Y: '#fef08a',
+      W: '#e2e8f0',
+      R: primary,
+      P: light,
+      B: '#9a683a',
+      D: '#5c3a1e',
+    };
+
+    const shipPalette: PaletteMap = {
+      K: '#0b101a',
+      W: '#f8fafc',
+      L: '#cbd5e1',
+      R: primary,
+      P: highlight,
+      B: '#854d27',
+      D: '#4a2912',
+      G: '#fbbf24',
+      C: '#bae6fd',
+    };
+
     this.factions.set(id, {
       castle: bakeSprite(CASTLE_GRID, castlePalette),
       castleFlash: bakeSprite(CASTLE_GRID_FLASH, castlePalette),
       barracks: bakeSprite(BARRACKS_GRID, barracksPalette),
+      port: bakeSprite(PORT_GRID, portPalette),
       soldierA: bakeSprite(SOLDIER_FRAME_A, soldierPalette),
       soldierB: bakeSprite(SOLDIER_FRAME_B, soldierPalette),
       eliteA: bakeSprite(ELITE_FRAME_A, soldierPalette),
       eliteB: bakeSprite(ELITE_FRAME_B, soldierPalette),
+      shipA: bakeSprite(SHIP_FRAME_A, shipPalette),
+      shipB: bakeSprite(SHIP_FRAME_B, shipPalette),
+      eliteShipA: bakeSprite(ELITE_SHIP_FRAME_A, shipPalette),
+      eliteShipB: bakeSprite(ELITE_SHIP_FRAME_B, shipPalette),
     });
   }
 

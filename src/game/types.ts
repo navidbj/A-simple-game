@@ -1,12 +1,14 @@
 export type FactionId = -1 | 0 | 1 | 2 | 3 | 4 | 5;
 
-export type BuildingType = 'barracks' | 'tower' | 'mine' | 'forge';
+export type BuildingType = 'barracks' | 'tower' | 'mine' | 'forge' | 'port';
 
 export type BiomeType = 'plain' | 'forest' | 'mountain' | 'fertile';
 
 export type PowerType = 'mobilize' | 'blitz' | 'shield';
 
 export type Difficulty = 'normal' | 'hard' | 'master';
+
+export type MapPreset = 'continent' | 'archipelago' | 'strait' | 'middle_east';
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 
@@ -75,7 +77,11 @@ export interface Territory {
   hasTower: boolean;
   hasMine: boolean;
   hasForge: boolean;
+  hasPort: boolean;
+  isCoastal: boolean;
+  coastPoint: { x: number; y: number } | null;
   neighbors: number[];
+  bridgeNeighbors: number[];
   borderCrossings: Record<number, { x: number; y: number }>;
   hitFlash: number;
   capturePulse: number;
@@ -105,6 +111,7 @@ export interface TroopGroup {
   owner: Exclude<FactionId, -1>;
   attackMultiplier: number;
   isElite: boolean;
+  isNaval: boolean;
 }
 
 export interface Particle {
@@ -144,6 +151,7 @@ export interface MapGridData {
   /** Procedural pixel biome props (trees, peaks, wheat fields) */
   props: MapProp[];
   seed: number;
+  preset: MapPreset;
 }
 
 export interface SimEvent {
@@ -173,6 +181,7 @@ export interface SimEvent {
   targetName?: string;
   amount?: number;
   isElite?: boolean;
+  isNaval?: boolean;
   building?: BuildingType;
   power?: PowerType;
   capturedByPlayer?: boolean;
@@ -212,10 +221,12 @@ export interface DragAimState {
   hoverTargetId: number | null;
   isValidTarget: boolean;
   isFriendlyTarget: boolean;
+  isNavalTarget: boolean;
 }
 
 export interface GameSimulation {
   seed: number;
+  preset: MapPreset;
   difficulty: Difficulty;
   map: MapGridData;
   territories: Territory[];
@@ -244,6 +255,7 @@ export interface HudSnapshot {
   phase: GamePhase;
   outcome: GameOutcome;
   difficulty: Difficulty;
+  mapPreset: MapPreset;
   sendRatio: number;
   selectedId: number | null;
   selectedTerritory: {
@@ -260,6 +272,8 @@ export interface HudSnapshot {
     hasTower: boolean;
     hasMine: boolean;
     hasForge: boolean;
+    hasPort: boolean;
+    isCoastal: boolean;
     shieldTimer: number;
     neighborCount: number;
     friendlyNeighborCount: number;

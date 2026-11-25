@@ -15,6 +15,7 @@ import {
   ManpowerIcon,
   MapDiceIcon,
   MobilizeIcon,
+  PortAnchorIcon,
   RallyIcon,
   ShieldPowerIcon,
   SupplyRouteIcon,
@@ -35,13 +36,14 @@ interface CommandSidebarProps {
   onNewMap: () => void;
 }
 
-const BUILDING_ORDER: BuildingType[] = ['barracks', 'tower', 'mine', 'forge'];
+const BUILDING_ORDER: BuildingType[] = ['barracks', 'tower', 'mine', 'forge', 'port'];
 const POWER_ORDER: PowerType[] = ['mobilize', 'blitz', 'shield'];
 
 function BuildingSvg({ type }: { type: BuildingType }) {
   if (type === 'barracks') return <BarracksIcon className="w-5 h-5 shrink-0" />;
   if (type === 'tower') return <GuardTowerIcon className="w-5 h-5 shrink-0" />;
   if (type === 'mine') return <GoldMineIcon className="w-5 h-5 shrink-0" />;
+  if (type === 'port') return <PortAnchorIcon className="w-5 h-5 shrink-0" />;
   return <WarForgeIcon className="w-5 h-5 shrink-0" />;
 }
 
@@ -367,14 +369,14 @@ export function CommandSidebar({
           </div>
         </section>
 
-        {/* Section 4: 4 Strategic Pixel-Art Buildings */}
+        {/* Section 4: 5 Strategic Pixel-Art Buildings (including Coastal Port) */}
         <section>
           <div className="flex items-center justify-between mb-1.5">
             <h3 className="text-xs font-bold text-[#cbd5e1]">
               ساختمان‌های قلعه
             </h3>
             <span className="text-[11px] text-[#64748b]">
-              هزینه از نیروی نظامی
+              {sel?.isCoastal ? 'قلعه ساحلی · مناسب بندر' : 'هزینه از نیروی نظامی'}
             </span>
           </div>
 
@@ -386,9 +388,11 @@ export function CommandSidebar({
                 ((type === 'barracks' && sel.hasBarracks) ||
                   (type === 'tower' && sel.hasTower) ||
                   (type === 'mine' && sel.hasMine) ||
-                  (type === 'forge' && sel.hasForge));
+                  (type === 'forge' && sel.hasForge) ||
+                  (type === 'port' && sel.hasPort));
+              const needsCoast = type === 'port' && sel !== null && !sel.isCoastal;
               const canAfford = isPlayerOwned && sel !== null && sel.military >= cfg.cost;
-              const disabled = !isPlayerOwned || alreadyBuilt || !canAfford;
+              const disabled = !isPlayerOwned || alreadyBuilt || needsCoast || !canAfford;
 
               return (
                 <button
@@ -400,11 +404,15 @@ export function CommandSidebar({
                     e.currentTarget.blur();
                     onBuild(type);
                   }}
-                  className={`w-full text-right px-2.5 py-2 border-2 transition-colors flex items-center gap-2.5 ${
+                  className={`w-full text-right px-2.5 py-1.5 border-2 transition-colors flex items-center gap-2.5 ${
                     alreadyBuilt
-                      ? 'bg-[#152823] border-[#265c49] text-[#86efac] cursor-default'
+                      ? type === 'port'
+                        ? 'bg-[#0f293b] border-[#38bdf8]/65 text-[#7dd3fc] cursor-default'
+                        : 'bg-[#152823] border-[#265c49] text-[#86efac] cursor-default'
                       : !disabled
-                        ? 'bg-[#152033] hover:bg-[#1e2f4a] border-[#334866] hover:border-[#c99846] text-[#f6efe0] cursor-pointer'
+                        ? type === 'port'
+                          ? 'bg-[#13253b] hover:bg-[#1a3452] border-[#38bdf8]/55 hover:border-[#7dd3fc] text-[#e0f2fe] cursor-pointer'
+                          : 'bg-[#152033] hover:bg-[#1e2f4a] border-[#334866] hover:border-[#c99846] text-[#f6efe0] cursor-pointer'
                         : 'bg-[#111a2a] border-[#1f2c40] text-[#64748b] cursor-not-allowed'
                   }`}
                 >
@@ -420,6 +428,8 @@ export function CommandSidebar({
                       <span className="text-xs font-bold shrink-0">
                         {alreadyBuilt ? (
                           'ساخته شد'
+                        ) : needsCoast ? (
+                          <span className="text-[10px] text-[#64748b]">نیاز به ساحل</span>
                         ) : (
                           <>
                             <span className="font-num">{cfg.cost}</span>
@@ -429,7 +439,9 @@ export function CommandSidebar({
                       </span>
                     </div>
                     <div className="mt-0.5 text-[11px] opacity-80 truncate">
-                      {cfg.shortEffect}
+                      {alreadyBuilt && type === 'port'
+                        ? 'روی هر قلعه ساحلی کلیک کنید تا ناوگان اعزام شود'
+                        : cfg.shortEffect}
                     </div>
                   </div>
                 </button>

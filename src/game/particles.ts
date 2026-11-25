@@ -405,16 +405,32 @@ export class ParticleSystem {
       const glowColor = faction ? faction.borderGlow : '#cbd5e1';
 
       if (ev.type === 'dispatch') {
-        this.spawnDispatchEffect(
-          ev.x,
-          ev.y,
-          ev.toX ?? ev.x + 20,
-          ev.toY ?? ev.y,
-          factionColor,
-          glowColor,
-          ev.amount ?? 8,
-          Boolean(ev.isElite)
-        );
+        if (ev.isNaval) {
+          this.spawnRing(
+            'dispatch',
+            ev.x,
+            ev.y,
+            '#38bdf8',
+            10,
+            34,
+            0.38,
+            2,
+            (ev.toX ?? ev.x + 20) - ev.x,
+            (ev.toY ?? ev.y) - ev.y
+          );
+          this.spawnRadialBurst(ev.x, ev.y, '#bae6fd', 10, 68, 'glint', '#0284c7');
+        } else {
+          this.spawnDispatchEffect(
+            ev.x,
+            ev.y,
+            ev.toX ?? ev.x + 20,
+            ev.toY ?? ev.y,
+            factionColor,
+            glowColor,
+            ev.amount ?? 8,
+            Boolean(ev.isElite)
+          );
+        }
       } else if (ev.type === 'clash') {
         this.spawnClashEffect(
           ev.x,
@@ -465,24 +481,39 @@ export class ParticleSystem {
     if (this.ambientAccum < 0.085) return;
     this.ambientAccum = 0;
 
-    // 1. Real marching dust puffs trailing behind moving pixel squads
+    // 1. Real marching dust puffs (land) OR crisp cyan sea-foam wakes (naval warships)
     const blitzActive = sim.powers.blitzTimer > 0;
     for (const tr of sim.troops) {
-      if (this.rand() < 0.48) {
+      if (this.rand() < (tr.isNaval ? 0.65 : 0.48)) {
         const p = this.allocParticle();
         const trailDir = tr.facingLeft ? 1 : -1;
-        p.kind = blitzActive && tr.owner === 0 && this.rand() > 0.5 ? 'spark' : 'dust';
-        p.x = tr.x + trailDir * (7 + this.rand() * 5) + (this.rand() - 0.5) * 4;
-        p.y = tr.y + 7 + (this.rand() - 0.5) * 4;
-        p.vx = trailDir * (10 + this.rand() * 14);
-        p.vy = -8 - this.rand() * 12;
-        p.maxLife = 0.28 + this.rand() * 0.2;
-        p.size = p.kind === 'spark' ? 2 : 3;
-        p.color = p.kind === 'spark' ? '#7dd3fc' : '#d8cba8';
-        p.secondaryColor = p.kind === 'spark' ? '#e0f2fe' : '#94a3b8';
-        p.gravity = -10;
-        p.drag = 0.9;
-        p.groundY = tr.y + 12;
+        if (tr.isNaval) {
+          p.kind = this.rand() > 0.35 ? 'dust' : 'glint';
+          p.x = tr.x + trailDir * (9 + this.rand() * 6) + (this.rand() - 0.5) * 5;
+          p.y = tr.y + 6 + (this.rand() - 0.5) * 5;
+          p.vx = trailDir * (8 + this.rand() * 12);
+          p.vy = (this.rand() - 0.5) * 8;
+          p.maxLife = 0.38 + this.rand() * 0.25;
+          p.size = 3;
+          p.color = '#e0f2fe';
+          p.secondaryColor = '#38bdf8';
+          p.gravity = 0;
+          p.drag = 0.92;
+          p.groundY = tr.y + 10;
+        } else {
+          p.kind = blitzActive && tr.owner === 0 && this.rand() > 0.5 ? 'spark' : 'dust';
+          p.x = tr.x + trailDir * (7 + this.rand() * 5) + (this.rand() - 0.5) * 4;
+          p.y = tr.y + 7 + (this.rand() - 0.5) * 4;
+          p.vx = trailDir * (10 + this.rand() * 14);
+          p.vy = -8 - this.rand() * 12;
+          p.maxLife = 0.28 + this.rand() * 0.2;
+          p.size = p.kind === 'spark' ? 2 : 3;
+          p.color = p.kind === 'spark' ? '#7dd3fc' : '#d8cba8';
+          p.secondaryColor = p.kind === 'spark' ? '#e0f2fe' : '#94a3b8';
+          p.gravity = -10;
+          p.drag = 0.9;
+          p.groundY = tr.y + 12;
+        }
       }
     }
 

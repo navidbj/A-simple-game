@@ -277,6 +277,12 @@ class SoundEngine {
     this.tone(290 * jitter, 240 * jitter, 0.07, 'sine', 0.06, 0.045);
   }
 
+  public playNavalLaunch() {
+    this.tone(146.83, 196.0, 0.16, 'triangle', 0.1, 0);
+    this.tone(293.66, 220.0, 0.14, 'sine', 0.065, 0.07);
+    this.tone(520, 320, 0.11, 'triangle', 0.04, 0.12);
+  }
+
   public playBuild() {
     this.tone(330, 330, 0.08, 'square', 0.06, 0);
     this.tone(440, 440, 0.09, 'square', 0.06, 0.07);

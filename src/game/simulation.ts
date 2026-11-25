@@ -5,6 +5,7 @@ import {
   DIFFICULTIES,
   ECONOMY,
   FACTIONS,
+  TERRITORY_COUNT,
 } from './constants';
 import { createRng, generateOrganicMap } from './mapGenerator';
 import type {
@@ -14,15 +15,21 @@ import type {
   FactionPowerEntry,
   GameOutcome,
   GameSimulation,
+  MapPreset,
   PowerType,
   SimEvent,
   Territory,
 } from './types';
 
-export function createInitialMatch(seed: number, difficulty: Difficulty): GameSimulation {
-  const { map, territories } = generateOrganicMap(seed);
+export function createInitialMatch(
+  seed: number,
+  difficulty: Difficulty,
+  preset: MapPreset = 'continent'
+): GameSimulation {
+  const { map, territories } = generateOrganicMap(seed, TERRITORY_COUNT, preset);
   return {
     seed,
+    preset,
     difficulty,
     map,
     territories,
@@ -254,6 +261,7 @@ export function canBuildStructure(t: Territory, building: BuildingType): boolean
   if (building === 'tower' && t.hasTower) return false;
   if (building === 'mine' && t.hasMine) return false;
   if (building === 'forge' && t.hasForge) return false;
+  if (building === 'port' && (t.hasPort || !t.isCoastal)) return false;
   return t.military >= BUILDINGS[building].cost;
 }
 
@@ -273,6 +281,7 @@ export function buildStructure(
   if (building === 'tower') t.hasTower = true;
   if (building === 'mine') t.hasMine = true;
   if (building === 'forge') t.hasForge = true;
+  if (building === 'port') t.hasPort = true;
 
   if (requester === 0) {
     sim.stats.buildingsConstructed += 1;
@@ -280,8 +289,8 @@ export function buildStructure(
 
   events?.push({
     type: 'build',
-    x: t.x,
-    y: t.y,
+    x: building === 'port' && t.coastPoint ? t.coastPoint.x : t.x,
+    y: building === 'port' && t.coastPoint ? t.coastPoint.y : t.y,
     owner: requester,
     territoryId: t.id,
     territoryName: t.name,
@@ -380,6 +389,88 @@ export interface DispatchResult {
   ok: boolean;
   reason?: 'invalid' | 'not_owner' | 'not_neighbor' | 'insufficient_troops';
   sent?: number;
+  isNaval?: boolean;
+}
+
+/** Returns whether a dispatch from `fromId` to `toId` is legal (land neighbor OR cross-sea Naval Raid via Port) */
+export function canDispatchTo(
+  sim: GameSimulation,
+  fromId: number,
+  toId: number
+): { allowed: boolean; isNaval: boolean } {
+  if (fromId === toId) return { allowed: false, isNaval: false };
+  const from = sim.territories[fromId];
+  const to = sim.territories[toId];
+  if (!from || !to) return { allowed: false, isNaval: false };
+  if (from.neighbors.includes(toId)) {
+    return { allowed: true, isNaval: false };
+  }
+  if (from.hasPort && from.isCoastal && to.isCoastal) {
+    return { allowed: true, isNaval: true };
+  }
+  return { allowed: false, isNaval: false };
+}
+
+/** Computes a curved sea-lane waypoint that stays over open ocean water as much as possible */
+export function computeNavalRoute(
+  sim: GameSimulation,
+  from: Territory,
+  to: Territory
+): { startX: number; startY: number; viaX: number; viaY: number; targetX: number; targetY: number } {
+  const sx = from.coastPoint?.x ?? from.x;
+  const sy = from.coastPoint?.y ?? from.y;
+  const ex = to.coastPoint?.x ?? to.x;
+  const ey = to.coastPoint?.y ?? to.y;
+
+  const mx = (sx + ex) * 0.5;
+  const my = (sy + ey) * 0.5;
+  const dx = ex - sx;
+  const dy = ey - sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  const { cells, cols, rows, step, width, height } = sim.map;
+  const offsets = [0, 75, -75, 155, -155, 240, -240];
+
+  let bestViaX = mx;
+  let bestViaY = my;
+  let bestScore = -Infinity;
+
+  for (const off of offsets) {
+    const cx = Math.max(24, Math.min(width - 24, mx + nx * off));
+    const cy = Math.max(24, Math.min(height - 24, my + ny * off));
+
+    let waterHits = 0;
+    const samples = 14;
+    for (let i = 1; i < samples; i++) {
+      const u = i / samples;
+      const mu = 1 - u;
+      const px = mu * mu * sx + 2 * mu * u * cx + u * u * ex;
+      const py = mu * mu * sy + 2 * mu * u * cy + u * u * ey;
+      const gx = Math.floor(px / step);
+      const gy = Math.floor(py / step);
+      if (gx < 0 || gy < 0 || gx >= cols || gy >= rows || cells[gy * cols + gx] === -1) {
+        waterHits += 1;
+      }
+    }
+    // Slight preference for shorter arc when water clearance ties
+    const score = waterHits * 10 - Math.abs(off) * 0.02;
+    if (score > bestScore) {
+      bestScore = score;
+      bestViaX = cx;
+      bestViaY = cy;
+    }
+  }
+
+  return {
+    startX: sx,
+    startY: sy,
+    viaX: bestViaX,
+    viaY: bestViaY,
+    targetX: ex,
+    targetY: ey,
+  };
 }
 
 export function dispatchTroops(
@@ -395,7 +486,9 @@ export function dispatchTroops(
   const to = sim.territories[toId];
   if (!from || !to) return { ok: false, reason: 'invalid' };
   if (from.owner !== requester) return { ok: false, reason: 'not_owner' };
-  if (!from.neighbors.includes(toId)) return { ok: false, reason: 'not_neighbor' };
+
+  const routeCheck = canDispatchTo(sim, fromId, toId);
+  if (!routeCheck.allowed) return { ok: false, reason: 'not_neighbor' };
 
   const clampedRatio = Math.max(0.1, Math.min(1.0, ratio));
   const maxSendable = Math.floor(from.military - 1);
@@ -404,10 +497,23 @@ export function dispatchTroops(
   const amount = Math.max(1, Math.min(maxSendable, Math.floor(from.military * clampedRatio)));
   from.military -= amount;
 
-  const crossing = from.borderCrossings[toId] ?? {
-    x: (from.x + to.x) * 0.5,
-    y: (from.y + to.y) * 0.5,
-  };
+  const isNaval = routeCheck.isNaval;
+  const route = isNaval
+    ? computeNavalRoute(sim, from, to)
+    : (() => {
+        const crossing = from.borderCrossings[toId] ?? {
+          x: (from.x + to.x) * 0.5,
+          y: (from.y + to.y) * 0.5,
+        };
+        return {
+          startX: from.x,
+          startY: from.y,
+          viaX: crossing.x,
+          viaY: crossing.y,
+          targetX: to.x,
+          targetY: to.y,
+        };
+      })();
 
   const attackMultiplier = from.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
 
@@ -415,21 +521,22 @@ export function dispatchTroops(
     id: sim.nextTroopId++,
     fromId,
     toId,
-    startX: from.x,
-    startY: from.y,
-    viaX: crossing.x,
-    viaY: crossing.y,
-    targetX: to.x,
-    targetY: to.y,
-    x: from.x,
-    y: from.y,
-    facingLeft: to.x < from.x,
+    startX: route.startX,
+    startY: route.startY,
+    viaX: route.viaX,
+    viaY: route.viaY,
+    targetX: route.targetX,
+    targetY: route.targetY,
+    x: route.startX,
+    y: route.startY,
+    facingLeft: route.targetX < route.startX,
     progress: 0,
-    speed: ECONOMY.TROOP_SPEED,
+    speed: isNaval ? ECONOMY.NAVAL_SPEED : ECONOMY.TROOP_SPEED,
     count: amount,
     owner: requester,
     attackMultiplier,
     isElite: from.hasForge || amount >= 25,
+    isNaval,
   });
 
   if (requester === 0) {
@@ -438,16 +545,22 @@ export function dispatchTroops(
 
   events?.push({
     type: 'dispatch',
-    x: from.x,
-    y: from.y,
-    toX: crossing.x,
-    toY: crossing.y,
+    x: route.startX,
+    y: route.startY,
+    toX: route.viaX,
+    toY: route.viaY,
     owner: requester,
+    previousOwner: to.owner,
+    territoryId: from.id,
+    targetId: to.id,
+    territoryName: from.name,
+    targetName: to.name,
     amount,
     isElite: from.hasForge || amount >= 25,
+    isNaval,
   });
 
-  return { ok: true, sent: amount };
+  return { ok: true, sent: amount, isNaval };
 }
 
 /** Quadratic Bezier interpolation through shared border crossing */
@@ -546,6 +659,7 @@ function resolveTroopArrival(
   target.hasTower = false;
   target.hasMine = false;
   target.hasForge = false;
+  target.hasPort = false;
   target.shieldTimer = 0;
   target.supplyTargetId = null;
   target.supplyTimer = 0;
@@ -583,6 +697,7 @@ function resolveTroopArrival(
     territoryName: target.name,
     amount: Math.round(target.military),
     isElite: troop.isElite,
+    isNaval: troop.isNaval,
     capturedByPlayer: troop.owner === 0,
   });
 }
@@ -650,9 +765,57 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
         buildStructure(sim, t.id, 'barracks', t.owner, events);
         continue;
       }
+
+      // Build coastal Port on sea-heavy maps or when coastal castles have surplus forces
+      const navalMapBonus = sim.preset === 'archipelago' || sim.preset === 'strait' || sim.preset === 'middle_east';
+      if (
+        t.isCoastal &&
+        !t.hasPort &&
+        t.hasBarracks &&
+        t.military >= BUILDINGS.port.cost + (navalMapBonus ? 8 : 16) &&
+        rng() < (navalMapBonus ? 0.65 : 0.3)
+      ) {
+        buildStructure(sim, t.id, 'port', t.owner, events);
+        continue;
+      }
     }
 
-    // 2. Interior Supply Lines: Safe rear castles reinforce threatened frontline castles
+    // 2. Naval Raid Opportunity from Coastal Port Castle (bypass blockades across water!)
+    if (t.hasPort && t.isCoastal && t.military >= 26 && rng() < 0.32) {
+      const coastalEnemies = sim.territories.filter(
+        (other) =>
+          other.id !== t.id &&
+          other.isCoastal &&
+          other.owner !== t.owner &&
+          !t.neighbors.includes(other.id)
+      );
+      if (coastalEnemies.length > 0) {
+        let bestSeaTarget: Territory | null = null;
+        let bestSeaScore = -Infinity;
+        const myAttackMult = t.hasForge ? ECONOMY.FORGE_ATTACK_MULTIPLIER : 1.0;
+
+        for (const c of coastalEnemies) {
+          const defMult = getEffectiveDefenseMultiplier(c);
+          const effectiveDefense = c.military / Math.max(0.25, defMult);
+          const advantage = (t.military * myAttackMult) / Math.max(4, effectiveDefense);
+          if (advantage < diff.aiAttackThreshold * 1.05) continue;
+          const dist = Math.hypot(c.x - t.x, c.y - t.y);
+          let score = advantage * 34 - dist * 0.04;
+          if (c.owner === -1) score += 16;
+          if (!demoMode && c.owner === 0 && playerCount >= diff.playerThreatThreshold) score += 20;
+          if (score > bestSeaScore) {
+            bestSeaScore = score;
+            bestSeaTarget = c;
+          }
+        }
+        if (bestSeaTarget) {
+          dispatchTroops(sim, t.id, bestSeaTarget.id, diff.aiAggressionRatio, t.owner, events);
+          continue;
+        }
+      }
+    }
+
+    // 3. Interior Supply Lines: Safe rear castles reinforce threatened frontline castles
     if (!isFrontline && friendlyNeighbors.length > 0 && t.military > 24) {
       const frontlineAlly = friendlyNeighbors
         .filter((f) => f.neighbors.some((nId) => sim.territories[nId].owner !== t.owner))
@@ -665,7 +828,7 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
       continue;
     }
 
-    // 3. Tactical Offensive Evaluation
+    // 4. Tactical Offensive Evaluation
     if (isFrontline && t.military > 16) {
       let bestTarget: Territory | null = null;
       let bestScore = -Infinity;
@@ -746,6 +909,7 @@ export function computeFactionPowers(sim: GameSimulation): FactionPowerEntry[] {
 export interface AttackPreview {
   sendAmount: number;
   isFriendly: boolean;
+  isNaval: boolean;
   effectiveAttack: number;
   defenderMilitary: number;
   willConquer: boolean;
@@ -753,7 +917,7 @@ export interface AttackPreview {
   defenseBonusPct: number;
 }
 
-/** Computes an accurate live preview of dispatching troops from one territory to an adjacent neighbor */
+/** Computes an accurate live preview of dispatching troops (land or naval raid) */
 export function previewAttackOutcome(
   sim: GameSimulation,
   fromId: number,
@@ -762,7 +926,9 @@ export function previewAttackOutcome(
 ): AttackPreview | null {
   const from = sim.territories[fromId];
   const to = sim.territories[toId];
-  if (!from || !to || !from.neighbors.includes(toId)) return null;
+  if (!from || !to) return null;
+  const check = canDispatchTo(sim, fromId, toId);
+  if (!check.allowed) return null;
 
   const clampedRatio = Math.max(0.1, Math.min(1.0, ratio));
   const maxSendable = Math.max(0, Math.floor(from.military - 1));
@@ -773,6 +939,7 @@ export function previewAttackOutcome(
     return {
       sendAmount,
       isFriendly: true,
+      isNaval: check.isNaval,
       effectiveAttack: sendAmount,
       defenderMilitary: Math.floor(to.military),
       willConquer: false,
@@ -790,6 +957,7 @@ export function previewAttackOutcome(
   return {
     sendAmount,
     isFriendly: false,
+    isNaval: check.isNaval,
     effectiveAttack,
     defenderMilitary,
     willConquer: effectiveAttack > defenderMilitary,

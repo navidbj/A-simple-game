@@ -26,11 +26,12 @@ export function buildBattleLogEntries(
     const castleName = ev.territoryName ?? 'قلعه';
 
     if (ev.type === 'capture') {
+      const viaSea = ev.isNaval ? ' (یورش دریایی)' : '';
       if (ev.capturedByPlayer) {
         created.push({
           id: nextIdRef.current++,
           timeText,
-          text: `قلعه «${castleName}» به دست شما فتح شد!`,
+          text: `قلعه «${castleName}» به دست شما فتح شد!${viaSea}`,
           tone: 'capture_player',
           accentColor: '#fbbf24',
         });
@@ -38,7 +39,7 @@ export function buildBattleLogEntries(
         created.push({
           id: nextIdRef.current++,
           timeText,
-          text: `قلعه «${castleName}» سقوط کرد (${faction?.shortName ?? 'دشمن'})`,
+          text: `قلعه «${castleName}» سقوط کرد (${faction?.shortName ?? 'دشمن'}${viaSea})`,
           tone: 'alert',
           accentColor: '#f87171',
         });
@@ -46,14 +47,37 @@ export function buildBattleLogEntries(
         created.push({
           id: nextIdRef.current++,
           timeText,
-          text: `قلعه «${castleName}» به تصرف ${faction?.shortName ?? 'رقیب'} درآمد`,
+          text: `قلعه «${castleName}» به تصرف ${faction?.shortName ?? 'رقیب'} درآمد${viaSea}`,
           tone: 'capture_enemy',
           accentColor: factionColor,
         });
       }
+    } else if (ev.type === 'dispatch' && ev.isNaval && ev.targetName) {
+      if (ev.owner === 0) {
+        created.push({
+          id: nextIdRef.current++,
+          timeText,
+          text: `ناوگان دریایی به سوی «${ev.targetName}» حرکت کرد`,
+          tone: 'power',
+          accentColor: '#38bdf8',
+        });
+      } else if (ev.previousOwner === 0) {
+        created.push({
+          id: nextIdRef.current++,
+          timeText,
+          text: `هشدار! یورش دریایی ${faction?.shortName ?? 'دشمن'} به «${ev.targetName}»`,
+          tone: 'alert',
+          accentColor: '#38bdf8',
+        });
+      }
     } else if (ev.type === 'build' && ev.building) {
-      // Log player buildings and notable enemy mines/forges/towers without spamming
-      if (ev.owner === 0 || ev.building === 'mine' || ev.building === 'forge') {
+      // Log player buildings and notable enemy mines/forges/ports without spamming
+      if (
+        ev.owner === 0 ||
+        ev.building === 'mine' ||
+        ev.building === 'forge' ||
+        ev.building === 'port'
+      ) {
         const bName = BUILDINGS[ev.building].name;
         const suffix = ev.owner === 0 ? 'ساخته شد' : `توسط ${faction?.shortName ?? 'رقیب'} ساخته شد`;
         created.push({
@@ -61,7 +85,12 @@ export function buildBattleLogEntries(
           timeText,
           text: `${bName} در «${castleName}» ${suffix}`,
           tone: 'build',
-          accentColor: ev.owner === 0 ? '#86efac' : factionColor,
+          accentColor:
+            ev.building === 'port'
+              ? '#38bdf8'
+              : ev.owner === 0
+                ? '#86efac'
+                : factionColor,
         });
       }
     } else if (ev.type === 'power' && ev.power && ev.owner === 0) {

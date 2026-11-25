@@ -12,6 +12,7 @@ import {
   GoldMineIcon,
   GuardTowerIcon,
   MobilizeIcon,
+  PortAnchorIcon,
   RallyIcon,
   ShieldPowerIcon,
   SupplyRouteIcon,
@@ -34,6 +35,7 @@ const BUILDING_ITEMS: Array<{ type: BuildingType; shortLabel: string }> = [
   { type: 'tower', shortLabel: 'برج' },
   { type: 'mine', shortLabel: 'معدن' },
   { type: 'forge', shortLabel: 'آهنگری' },
+  { type: 'port', shortLabel: 'بندر' },
 ];
 
 const POWER_ITEMS: Array<{ type: PowerType; shortLabel: string }> = [
@@ -46,6 +48,7 @@ function BuildingSvg({ type }: { type: BuildingType }) {
   if (type === 'barracks') return <BarracksIcon className="w-4 h-4 shrink-0" />;
   if (type === 'tower') return <GuardTowerIcon className="w-4 h-4 shrink-0" />;
   if (type === 'mine') return <GoldMineIcon className="w-4 h-4 shrink-0" />;
+  if (type === 'port') return <PortAnchorIcon className="w-4 h-4 shrink-0" />;
   return <WarForgeIcon className="w-4 h-4 shrink-0" />;
 }
 
@@ -176,7 +179,7 @@ export function MobileCommandBar({
 
         <span className="h-8 w-px bg-[#25354f] shrink-0" aria-hidden="true" />
 
-        {/* 4. All 4 Buildings — 1-Tap Access without Drawer */}
+        {/* 4. All 5 Buildings (incl. Coastal Port) — 1-Tap Access without Drawer */}
         <div className="flex items-center gap-1 shrink-0">
           {BUILDING_ITEMS.map(({ type, shortLabel }) => {
             const cfg = BUILDINGS[type];
@@ -185,9 +188,11 @@ export function MobileCommandBar({
               ((type === 'barracks' && sel.hasBarracks) ||
                 (type === 'tower' && sel.hasTower) ||
                 (type === 'mine' && sel.hasMine) ||
-                (type === 'forge' && sel.hasForge));
+                (type === 'forge' && sel.hasForge) ||
+                (type === 'port' && sel.hasPort));
+            const needsCoast = type === 'port' && sel !== null && !sel.isCoastal;
             const canAfford = isPlayerOwned && sel !== null && sel.military >= cfg.cost;
-            const disabled = !isPlayerOwned || alreadyBuilt || !canAfford;
+            const disabled = !isPlayerOwned || alreadyBuilt || needsCoast || !canAfford;
 
             return (
               <button
@@ -200,11 +205,15 @@ export function MobileCommandBar({
                   e.currentTarget.blur();
                   onBuild(type);
                 }}
-                className={`min-w-[56px] min-h-[46px] px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
+                className={`min-w-[52px] min-h-[46px] px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
                   alreadyBuilt
-                    ? 'bg-[#152823] border-[#28634d] text-[#86efac]'
+                    ? type === 'port'
+                      ? 'bg-[#0f293b] border-[#38bdf8] text-[#7dd3fc]'
+                      : 'bg-[#152823] border-[#28634d] text-[#86efac]'
                     : !disabled
-                      ? 'bg-[#162236] active:bg-[#223452] border-[#385073] text-[#f6efe0] cursor-pointer'
+                      ? type === 'port'
+                        ? 'bg-[#13283d] active:bg-[#1a3a58] border-[#38bdf8]/70 text-[#e0f2fe] cursor-pointer'
+                        : 'bg-[#162236] active:bg-[#223452] border-[#385073] text-[#f6efe0] cursor-pointer'
                       : 'bg-[#111929] border-[#1e2a3d] text-[#64748b] cursor-not-allowed'
                 }`}
               >
