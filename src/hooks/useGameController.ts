@@ -362,7 +362,7 @@ export function useGameController() {
         res.reason === 'not_owner'
           ? 'این قلعه دیگر در اختیار شما نیست.'
           : res.reason === 'not_neighbor'
-            ? 'فقط به همسایگان مرزی یا با بندرگاه به قلعه‌های ساحلی می‌توانید حمله کنید.'
+            ? 'فقط به قلعه‌های همسایه و هم‌مرز می‌توانید نیرو اعزام کنید.'
             : 'نیروی نظامی کافی برای اعزام وجود ندارد.';
       showToast(message, 'error');
       return false;
@@ -555,7 +555,11 @@ export function useGameController() {
 
     const hovId = hoveredIdRef.current;
     let targetId: number | null = null;
-    if (hovId !== null && hovId !== sel.id && sel.neighbors.includes(hovId)) {
+    if (
+      hovId !== null &&
+      hovId !== sel.id &&
+      canDispatchTo(simRef.current, sel.id, hovId).allowed
+    ) {
       targetId = hovId;
     } else {
       const weakest = getWeakestEnemyNeighbor(simRef.current, sel.id);
@@ -577,6 +581,7 @@ export function useGameController() {
       const nextId = cycleOwnedTerritory(simRef.current, selectedIdRef.current, 0, reverse);
       if (nextId !== null) {
         selectedIdRef.current = nextId;
+        setSupplyMode(false);
         soundEngine.playSelect();
         syncHud();
       }
@@ -699,21 +704,29 @@ export function useGameController() {
         return;
       }
 
+      const hitRadius = session.isTouch ? 48 : 34;
+
       if (session.hasDragged && dragAimRef.current.active) {
         const drag = dragAimRef.current;
         dragAimRef.current = createIdleDragAim();
-        if (drag.hoverTargetId !== null && drag.isValidTarget) {
-          executeDispatch(drag.originId, drag.hoverTargetId, sendRatioRef.current);
-        } else if (drag.hoverTargetId !== null && !drag.isValidTarget) {
-          soundEngine.playError();
-          showToast('فقط به همسایگان مرزی یا با بندرگاه به قلعه‌های ساحلی می‌توانید حمله کنید.', 'error');
+        const { x: dropX, y: dropY } = renderer.screenToWorld(canvas, e.clientX, e.clientY);
+        const dropHit = getTerritoryAtPoint(simRef.current, dropX, dropY, hitRadius);
+        const targetId =
+          dropHit && dropHit.id !== drag.originId ? dropHit.id : drag.hoverTargetId;
+        if (targetId !== null && targetId !== drag.originId) {
+          const check = canDispatchTo(simRef.current, drag.originId, targetId);
+          if (check.allowed) {
+            executeDispatch(drag.originId, targetId, sendRatioRef.current);
+          } else {
+            soundEngine.playError();
+            showToast('فقط به قلعه‌های همسایه و هم‌مرز می‌توانید نیرو اعزام کنید.', 'error');
+          }
         }
         return;
       }
 
       dragAimRef.current = createIdleDragAim();
 
-      const hitRadius = session.isTouch ? 48 : 34;
       const { x, y } = renderer.screenToWorld(canvas, e.clientX, e.clientY);
       const clicked = getTerritoryAtPoint(simRef.current, x, y, hitRadius);
 
@@ -765,6 +778,7 @@ export function useGameController() {
       if (currentSel.id === clicked.id) {
         lastTapRef.current = { id: clicked.id, time: now };
         selectedIdRef.current = null;
+        setSupplyMode(false);
         soundEngine.playSelect();
         syncHud();
         return;
@@ -794,7 +808,7 @@ export function useGameController() {
       }
 
       soundEngine.playError();
-      showToast('فقط به همسایگان مرزی یا با بندرگاه به قلعه‌های ساحلی می‌توانید حمله کنید.', 'error');
+      showToast('فقط به قلعه‌های همسایه و هم‌مرز می‌توانید نیرو اعزام کنید.', 'error');
     },
     [executeDispatch, executeSetSupplyRoute, rallyForCastle, showToast, syncHud]
   );
@@ -1035,6 +1049,13 @@ export function useGameController() {
           needsStaticRender = true;
           syncHud();
         } else {
+          if (
+            supplyModeRef.current &&
+            (selectedIdRef.current === null ||
+              sim.territories[selectedIdRef.current]?.owner !== 0)
+          ) {
+            setSupplyMode(false);
+          }
           hudTimer += dt;
           if (hudTimer >= 0.16) {
             hudTimer = 0;

@@ -180,9 +180,13 @@ export function getTerritoryRates(t: Territory, growthBonus = 1.0) {
   const biome = BIOMES[t.biome];
   const mineLvl = getBuildingLevel(t, 'mine');
   const barracksLvl = getBuildingLevel(t, 'barracks');
-  const maxManpower = ECONOMY.MINE_MAX_MANPOWER_LEVELS[mineLvl];
+  const portLvl = getBuildingLevel(t, 'port');
+  const maxManpower =
+    ECONOMY.MINE_MAX_MANPOWER_LEVELS[mineLvl] +
+    ECONOMY.PORT_MAX_MANPOWER_BONUSES[portLvl];
   const manpowerRate =
     ECONOMY.MINE_MANPOWER_GROWTH_LEVELS[mineLvl] *
+    ECONOMY.PORT_MANPOWER_GROWTH_BONUSES[portLvl] *
     biome.manpowerGrowthMult *
     growthBonus;
   const conversionSpeed =
@@ -352,9 +356,6 @@ export function canDispatchTo(
   if (!from || !to) return { allowed: false, isNaval: false, reason: 'invalid' };
   if (from.neighbors.includes(toId)) {
     return { allowed: true, isNaval: false };
-  }
-  if (from.hasPort && to.isCoastal) {
-    return { allowed: true, isNaval: true };
   }
   return { allowed: false, isNaval: false, reason: 'not_neighbor' };
 }
