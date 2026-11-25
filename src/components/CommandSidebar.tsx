@@ -17,16 +17,20 @@ import {
   MobilizeIcon,
   RallyIcon,
   ShieldPowerIcon,
+  SupplyRouteIcon,
   SwordIcon,
   WarForgeIcon,
 } from './GameIcons';
 
 interface CommandSidebarProps {
   hud: HudSnapshot;
+  supplyMode: boolean;
   onChangeSendRatio: (ratio: number) => void;
   onBuild: (type: BuildingType) => void;
   onTriggerPower: (power: PowerType) => void;
   onRally: () => void;
+  onToggleSupplyMode: () => void;
+  onClearSupply: () => void;
   onOpenShortcuts: () => void;
   onNewMap: () => void;
 }
@@ -49,10 +53,13 @@ function PowerSvg({ type }: { type: PowerType }) {
 
 export function CommandSidebar({
   hud,
+  supplyMode,
   onChangeSendRatio,
   onBuild,
   onTriggerPower,
   onRally,
+  onToggleSupplyMode,
+  onClearSupply,
   onOpenShortcuts,
   onNewMap,
 }: CommandSidebarProps) {
@@ -182,24 +189,71 @@ export function CommandSidebar({
                 </div>
               </div>
 
-              {/* Quick 1-Click Rally Reinforcements from Adjacent Friendly Castles */}
+              {/* Quick Tactical Logistics: Rally Reinforcements [A] + Auto-Supply Line [S] */}
               {isPlayerOwned && (
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={(e) => {
-                    e.currentTarget.blur();
-                    onRally();
-                  }}
-                  title="فراخوانی ۵۰٪ نیروی کمکی از تمام قلعه‌های هم‌مرز خودی (کلید A یا دابل‌کلیک)"
-                  className="w-full py-1.5 px-2.5 bg-[#152822] hover:bg-[#1c382f] border-2 border-[#2b634e] hover:border-[#4ade80] text-[#a7f3d0] text-xs font-bold transition-colors flex items-center justify-between gap-2 cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <RallyIcon className="w-3.5 h-3.5 shrink-0" />
-                    <span>فراخوانی کمکی هم‌مرز</span>
-                  </span>
-                  <span className="font-num text-[10px] opacity-80">[A]</span>
-                </button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      onRally();
+                    }}
+                    title="فراخوانی ۵۰٪ نیروی کمکی از تمام قلعه‌های هم‌مرز خودی (کلید A یا دابل‌کلیک)"
+                    className="py-1.5 px-2 bg-[#152822] hover:bg-[#1c382f] border-2 border-[#2b634e] hover:border-[#4ade80] text-[#a7f3d0] text-[11px] font-bold transition-colors flex items-center justify-between gap-1 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1 truncate">
+                      <RallyIcon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">کمکی هم‌مرز</span>
+                    </span>
+                    <span className="font-num text-[10px] opacity-80 shrink-0">[A]</span>
+                  </button>
+
+                  {sel.supplyTargetName ? (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={(e) => {
+                        e.currentTarget.blur();
+                        onClearSupply();
+                      }}
+                      title={`لغو خط تأمین خودکار به «${sel.supplyTargetName}» (کلید S)`}
+                      className="py-1.5 px-2 bg-[#113128] hover:bg-[#1b4639] border-2 border-[#34d399] text-[#6ee7b7] text-[11px] font-bold transition-colors flex items-center justify-between gap-1 cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1 truncate">
+                        <SupplyRouteIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{sel.supplyTargetName}</span>
+                      </span>
+                      <span className="text-[10px] text-[#fca5a5] shrink-0">✕</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      disabled={sel.friendlyNeighborCount === 0}
+                      onClick={(e) => {
+                        e.currentTarget.blur();
+                        onToggleSupplyMode();
+                      }}
+                      title="ایجاد خط تأمین خودکار به قلعه هم‌مرز خودی (کلید S یا Shift+کلیک)"
+                      className={`py-1.5 px-2 border-2 text-[11px] font-bold transition-colors flex items-center justify-between gap-1 ${
+                        supplyMode
+                          ? 'bg-[#0f3529] border-[#34d399] text-[#a7f3d0] cursor-pointer'
+                          : sel.friendlyNeighborCount > 0
+                            ? 'bg-[#152433] hover:bg-[#1b3347] border-[#2e526b] hover:border-[#34d399] text-[#bae6fd] cursor-pointer'
+                            : 'bg-[#101827] border-[#1f2c40] text-[#64748b] cursor-not-allowed'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1 truncate">
+                        <SupplyRouteIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">
+                          {supplyMode ? 'مقصد را بزنید' : 'خط تأمین'}
+                        </span>
+                      </span>
+                      <span className="font-num text-[10px] opacity-80 shrink-0">[S]</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ) : (

@@ -81,6 +81,9 @@ export interface Territory {
   capturePulse: number;
   towerFireTimer: number;
   shieldTimer: number;
+  /** Target friendly neighbor id for Auto-Supply reinforcement line, or null */
+  supplyTargetId: number | null;
+  supplyTimer: number;
 }
 
 export interface TroopGroup {
@@ -152,6 +155,8 @@ export interface SimEvent {
     | 'clash'
     | 'capture'
     | 'tower_block'
+    | 'supply_set'
+    | 'supply_clear'
     | 'victory'
     | 'defeat';
   x: number;
@@ -161,11 +166,29 @@ export interface SimEvent {
   toX?: number;
   toY?: number;
   owner: FactionId;
+  previousOwner?: FactionId;
+  territoryId?: number;
+  targetId?: number;
+  territoryName?: string;
+  targetName?: string;
   amount?: number;
   isElite?: boolean;
   building?: BuildingType;
   power?: PowerType;
   capturedByPlayer?: boolean;
+}
+
+export interface TimelapseSnapshot {
+  elapsed: number;
+  owners: FactionId[];
+}
+
+export interface BattleLogEntry {
+  id: number;
+  timeText: string;
+  text: string;
+  tone: 'capture_player' | 'capture_enemy' | 'build' | 'power' | 'supply' | 'alert';
+  accentColor: string;
 }
 
 export interface MatchStats {
@@ -205,6 +228,8 @@ export interface GameSimulation {
   mapDirty: boolean;
   hitstopTimer: number;
   shakeTrauma: number;
+  timelapse: TimelapseSnapshot[];
+  timelapseTimer: number;
 }
 
 export interface FactionPowerEntry {
@@ -237,6 +262,9 @@ export interface HudSnapshot {
     hasForge: boolean;
     shieldTimer: number;
     neighborCount: number;
+    friendlyNeighborCount: number;
+    supplyTargetId: number | null;
+    supplyTargetName: string | null;
   } | null;
   powers: {
     cooldowns: Record<PowerType, number>;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BattleLogPanel } from './components/BattleLogPanel';
 import { CommandSidebar } from './components/CommandSidebar';
 import { MobileCommandBar } from './components/MobileCommandBar';
 import { RotatePhoneOverlay } from './components/RotatePhoneOverlay';
@@ -7,10 +8,13 @@ import { StatusModal } from './components/StatusModal';
 import { TitleOverlay } from './components/TitleOverlay';
 import { TopHudBar } from './components/TopHudBar';
 import { soundEngine } from './game/audio';
+import { appendBattleLog, buildBattleLogEntries } from './game/battleLog';
 import { DIFFICULTIES, SEND_RATIOS } from './game/constants';
 import { GameRenderer } from './game/renderer';
 import {
   buildStructure,
+  clearSupplyRoute,
+  computeBattleIntensity,
   computeFactionPowers,
   createInitialMatch,
   cycleOwnedTerritory,
@@ -19,10 +23,13 @@ import {
   getTerritoryRates,
   getWeakestEnemyNeighbor,
   rallyReinforcements,
+  recordTimelapseSnapshot,
+  setSupplyRoute,
   stepSimulation,
   triggerCommanderPower,
 } from './game/simulation';
 import type {
+  BattleLogEntry,
   BuildingType,
   Difficulty,
   DragAimState,
@@ -66,6 +73,13 @@ function getInitialSeed(): number {
   return Number.isFinite(s) && s > 0 ? Math.floor(s) : makeRandomSeed();
 }
 
+function getTestEndMode(): 'victory' | 'defeat' | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get('test_end');
+  return mode === 'victory' || mode === 'defeat' ? mode : null;
+}
+
 function createIdleDragAim(): DragAimState {
   return {
     active: false,
@@ -106,6 +120,14 @@ function buildHudSnapshot(
   if (sel) {
     const bonus = sel.owner <= 0 ? 1.0 : DIFFICULTIES[sim.difficulty].aiGrowthBonus;
     const rates = getTerritoryRates(sel, bonus);
+    const friendlyNeighborCount =
+      sel.owner === 0
+        ? sel.neighbors.filter((nId) => sim.territories[nId]?.owner === 0).length
+        : 0;
+    const supplyTarget =
+      sel.owner === 0 && sel.supplyTargetId !== null
+        ? sim.territories[sel.supplyTargetId] ?? null
+        : null;
     selectedTerritory = {
       id: sel.id,
       name: sel.name,
@@ -122,6 +144,9 @@ function buildHudSnapshot(
       hasForge: sel.hasForge,
       shieldTimer: sel.shieldTimer,
       neighborCount: sel.neighbors.length,
+      friendlyNeighborCount,
+      supplyTargetId: supplyTarget && supplyTarget.owner === 0 ? supplyTarget.id : null,
+      supplyTargetName: supplyTarget && supplyTarget.owner === 0 ? supplyTarget.name : null,
     };
   }
 
@@ -169,11 +194,17 @@ export default function App() {
   const lastTapRef = useRef<{ id: number; time: number } | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const shortcutsOpenRef = useRef<boolean>(false);
+  const supplyModeRef = useRef<boolean>(false);
+  const logIdRef = useRef<number>(1);
 
   const [muted, setMuted] = useState(false);
+  const [musicMuted, setMusicMuted] = useState(false);
   const [gameSpeed, setGameSpeed] = useState<GameSpeed>(1);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [portraitDismissed, setPortraitDismissed] = useState(false);
+  const [supplyMode, setSupplyMode] = useState(false);
+  const [logOpen, setLogOpen] = useState<boolean>(() => !viewport.isCompact);
+  const [battleLog, setBattleLog] = useState<BattleLogEntry[]>([]);
   const [toast, setToast] = useState<{ text: string; tone: 'error' | 'info' } | null>(null);
   const [hud, setHud] = useState<HudSnapshot>(() =>
     buildHudSnapshot(
@@ -184,10 +215,25 @@ export default function App() {
     )
   );
 
-  // Reset portrait dismiss if user rotates to landscape and back later? Keep dismissed once user explicitly chose portrait.
   useEffect(() => {
     shortcutsOpenRef.current = shortcutsOpen;
   }, [shortcutsOpen]);
+
+  useEffect(() => {
+    supplyModeRef.current = supplyMode;
+  }, [supplyMode]);
+
+  // If viewport transitions into compact mobile mode, keep map unobstructed
+  useEffect(() => {
+    if (viewport.isCompact) {
+      setLogOpen(false);
+    }
+  }, [viewport.isCompact]);
+
+  const setSupplyModeSynced = useCallback((next: boolean) => {
+    supplyModeRef.current = next;
+    setSupplyMode(next);
+  }, []);
 
   const syncHud = useCallback(() => {
     setHud(
@@ -198,6 +244,18 @@ export default function App() {
         selectedIdRef.current
       )
     );
+  }, []);
+
+  const pushBattleEvents = useCallback((events: SimEvent[]) => {
+    if (events.length === 0) return;
+    const entries = buildBattleLogEntries(
+      events,
+      simRef.current.stats.elapsedSeconds,
+      logIdRef
+    );
+    if (entries.length > 0) {
+      setBattleLog((prev) => appendBattleLog(prev, entries));
+    }
   }, []);
 
   const showToast = useCallback((text: string, tone: 'error' | 'info' = 'error') => {
@@ -230,6 +288,8 @@ export default function App() {
         soundEngine.playBuild();
       } else if (ev.type === 'power' && ev.owner === 0) {
         soundEngine.playPower();
+      } else if (ev.type === 'supply_set' && ev.owner === 0) {
+        soundEngine.playSupplyLink();
       }
     }
   }, []);
@@ -250,11 +310,17 @@ export default function App() {
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
+      setSupplyModeSynced(false);
       setShortcutsOpen(false);
+      setBattleLog([]);
       setToast(null);
+      soundEngine.setMusicState(
+        nextPhase === 'playing',
+        computeBattleIntensity(simRef.current)
+      );
       syncHud();
     },
-    [syncHud]
+    [setSupplyModeSynced, syncHud]
   );
 
   const handleStartFromTitle = useCallback(() => {
@@ -286,15 +352,18 @@ export default function App() {
     if (phaseRef.current === 'playing') {
       phaseRef.current = 'paused';
       document.body.dataset.state = 'paused';
+      setSupplyModeSynced(false);
+      soundEngine.setMusicState(false);
       soundEngine.playSelect();
       syncHud();
     } else if (phaseRef.current === 'paused') {
       phaseRef.current = 'playing';
       document.body.dataset.state = 'playing';
+      soundEngine.setMusicState(true, computeBattleIntensity(simRef.current));
       soundEngine.playSelect();
       syncHud();
     }
-  }, [syncHud]);
+  }, [setSupplyModeSynced, syncHud]);
 
   const handleReturnTitle = useCallback(() => {
     soundEngine.playSelect();
@@ -304,6 +373,20 @@ export default function App() {
   const handleToggleMute = useCallback(() => {
     const next = soundEngine.toggleMute();
     setMuted(next);
+  }, []);
+
+  const handleToggleMusic = useCallback(() => {
+    const next = soundEngine.toggleMusic();
+    setMusicMuted(next);
+    if (!next && phaseRef.current === 'playing') {
+      soundEngine.setMusicState(true, computeBattleIntensity(simRef.current));
+    }
+    showToast(next ? 'موسیقی ۱۶ بیتی خاموش شد.' : 'موسیقی ۱۶ بیتی روشن شد.', 'info');
+  }, [showToast]);
+
+  const handleToggleBattleLog = useCallback(() => {
+    setLogOpen((prev) => !prev);
+    soundEngine.playSelect();
   }, []);
 
   const handleCycleSpeed = useCallback(() => {
@@ -382,6 +465,90 @@ export default function App() {
     rallyForCastle(selectedIdRef.current);
   }, [rallyForCastle]);
 
+  const handleLinkSupply = useCallback(
+    (fromId: number, toId: number) => {
+      const events: SimEvent[] = [];
+      const res = setSupplyRoute(simRef.current, fromId, toId, 0, events);
+      if (res.ok) {
+        rendererRef.current?.consumeEvents(events);
+        handleEventsAudio(events, true);
+        pushBattleEvents(events);
+        setSupplyModeSynced(false);
+        if (res.action === 'set') {
+          const target = simRef.current.territories[toId];
+          showToast(
+            `خط تأمین خودکار به «${target?.name ?? 'مقصد'}» برقرار شد.`,
+            'info'
+          );
+        } else {
+          showToast('خط تأمین خودکار لغو شد.', 'info');
+        }
+        syncHud();
+        return true;
+      }
+      soundEngine.playError();
+      setSupplyModeSynced(false);
+      showToast('خط تأمین فقط بین دو قلعه هم‌مرز خودی قابل اتصال است.', 'info');
+      return false;
+    },
+    [handleEventsAudio, pushBattleEvents, setSupplyModeSynced, showToast, syncHud]
+  );
+
+  const handleClearSupply = useCallback(() => {
+    if (phaseRef.current !== 'playing') return;
+    const selId = selectedIdRef.current;
+    if (selId === null) return;
+    const events: SimEvent[] = [];
+    const cleared = clearSupplyRoute(simRef.current, selId, 0, events);
+    if (cleared) {
+      soundEngine.playSelect();
+      pushBattleEvents(events);
+      setSupplyModeSynced(false);
+      showToast('خط تأمین خودکار این قلعه لغو شد.', 'info');
+      syncHud();
+    }
+  }, [pushBattleEvents, setSupplyModeSynced, showToast, syncHud]);
+
+  const handleToggleSupplyMode = useCallback(() => {
+    if (phaseRef.current !== 'playing') return;
+    const selId = selectedIdRef.current;
+    if (selId === null) {
+      soundEngine.playError();
+      showToast('ابتدا یکی از قلعه‌های خودی را انتخاب کنید.', 'info');
+      return;
+    }
+    const sel = simRef.current.territories[selId];
+    if (!sel || sel.owner !== 0) {
+      soundEngine.playError();
+      showToast('فقط برای قلعه‌های خودی می‌توانید خط تأمین بسازید.', 'info');
+      return;
+    }
+
+    if (supplyModeRef.current) {
+      setSupplyModeSynced(false);
+      soundEngine.playSelect();
+      return;
+    }
+
+    if (sel.supplyTargetId !== null) {
+      handleClearSupply();
+      return;
+    }
+
+    const friendlyNeighbors = sel.neighbors.filter(
+      (nId) => simRef.current.territories[nId]?.owner === 0
+    );
+    if (friendlyNeighbors.length === 0) {
+      soundEngine.playError();
+      showToast('این قلعه هیچ همسایه خودی برای ارسال خط تأمین ندارد.', 'info');
+      return;
+    }
+
+    setSupplyModeSynced(true);
+    soundEngine.playSelect();
+    showToast('روی یک قلعه هم‌مرز خودی کلیک کنید تا خط تأمین وصل شود.', 'info');
+  }, [handleClearSupply, setSupplyModeSynced, showToast]);
+
   const handleBuild = useCallback(
     (type: BuildingType) => {
       if (phaseRef.current !== 'playing') return;
@@ -392,12 +559,13 @@ export default function App() {
       if (built) {
         rendererRef.current?.consumeEvents(events);
         handleEventsAudio(events, true);
+        pushBattleEvents(events);
         syncHud();
       } else {
         soundEngine.playError();
       }
     },
-    [handleEventsAudio, syncHud]
+    [handleEventsAudio, pushBattleEvents, syncHud]
   );
 
   const handleTriggerPower = useCallback(
@@ -413,12 +581,13 @@ export default function App() {
       if (fired) {
         rendererRef.current?.consumeEvents(events);
         handleEventsAudio(events, true);
+        pushBattleEvents(events);
         syncHud();
       } else {
         soundEngine.playError();
       }
     },
-    [handleEventsAudio, syncHud]
+    [handleEventsAudio, pushBattleEvents, syncHud]
   );
 
   const handleQuickAttackSpace = useCallback(() => {
@@ -453,11 +622,12 @@ export default function App() {
       const nextId = cycleOwnedTerritory(simRef.current, selectedIdRef.current, 0, reverse);
       if (nextId !== null) {
         selectedIdRef.current = nextId;
+        setSupplyModeSynced(false);
         soundEngine.playSelect();
         syncHud();
       }
     },
-    [syncHud]
+    [setSupplyModeSynced, syncHud]
   );
 
   // Unified Mouse + Touch Pointer Handlers (Tap-to-Attack + Drag-to-Attack + Double-Tap Rally)
@@ -567,13 +737,19 @@ export default function App() {
         return;
       }
 
-      // Case A: User completed a Drag-to-Attack / Drag-to-Reinforce gesture
+      // Case A: User completed a Drag-to-Attack / Drag-to-Reinforce / Shift+Drag Supply gesture
       if (session.hasDragged && dragAimRef.current.active) {
         const drag = dragAimRef.current;
         dragAimRef.current = createIdleDragAim();
         if (drag.hoverTargetId !== null && drag.isValidTarget) {
-          executeDispatch(drag.originId, drag.hoverTargetId, sendRatioRef.current);
+          if ((e.shiftKey || supplyModeRef.current) && drag.isFriendlyTarget) {
+            handleLinkSupply(drag.originId, drag.hoverTargetId);
+          } else {
+            setSupplyModeSynced(false);
+            executeDispatch(drag.originId, drag.hoverTargetId, sendRatioRef.current);
+          }
         } else if (drag.hoverTargetId !== null && !drag.isValidTarget) {
+          setSupplyModeSynced(false);
           soundEngine.playError();
           showToast('فقط به سرزمین‌های هم‌مرز (متصل با خط‌چین) می‌توانید حمله کنید.', 'error');
         }
@@ -590,8 +766,36 @@ export default function App() {
       if (!clicked) {
         selectedIdRef.current = null;
         lastTapRef.current = null;
+        setSupplyModeSynced(false);
         syncHud();
         return;
+      }
+
+      const currentSelId = selectedIdRef.current;
+      const currentSel =
+        currentSelId !== null ? simRef.current.territories[currentSelId] : null;
+
+      // Case B0: Auto-Supply Line linking (via Supply Mode [S] or Shift+Click on adjacent friendly castle)
+      if (
+        (supplyModeRef.current || e.shiftKey) &&
+        currentSel &&
+        currentSel.owner === 0 &&
+        clicked.id !== currentSel.id
+      ) {
+        if (currentSel.neighbors.includes(clicked.id) && clicked.owner === 0) {
+          handleLinkSupply(currentSel.id, clicked.id);
+          return;
+        }
+        if (supplyModeRef.current) {
+          setSupplyModeSynced(false);
+          soundEngine.playError();
+          showToast('خط تأمین فقط بین دو قلعه هم‌مرز خودی برقرار می‌شود.', 'info');
+          return;
+        }
+      }
+
+      if (supplyModeRef.current) {
+        setSupplyModeSynced(false);
       }
 
       // Quick Double-Tap / Double-Click on a player castle -> Rally adjacent reinforcements!
@@ -608,10 +812,6 @@ export default function App() {
         return;
       }
       lastTapRef.current = clicked.owner === 0 ? { id: clicked.id, time: now } : null;
-
-      const currentSelId = selectedIdRef.current;
-      const currentSel =
-        currentSelId !== null ? simRef.current.territories[currentSelId] : null;
 
       // 1. Nothing selected or selected castle is not player-owned -> select clicked
       if (!currentSel || currentSel.owner !== 0) {
@@ -647,7 +847,14 @@ export default function App() {
       soundEngine.playError();
       showToast('فقط به سرزمین‌های هم‌مرز (متصل با خط‌چین) می‌توانید حمله کنید.', 'error');
     },
-    [executeDispatch, rallyForCastle, showToast, syncHud]
+    [
+      executeDispatch,
+      handleLinkSupply,
+      rallyForCastle,
+      setSupplyModeSynced,
+      showToast,
+      syncHud,
+    ]
   );
 
   const handleCanvasPointerCancel = useCallback(() => {
@@ -733,8 +940,24 @@ export default function App() {
         return;
       }
 
+      if (code === 'Escape' && supplyModeRef.current) {
+        e.preventDefault();
+        setSupplyModeSynced(false);
+        return;
+      }
+
       if (code === 'KeyM') {
         handleToggleMute();
+        return;
+      }
+
+      if (code === 'KeyB') {
+        handleToggleMusic();
+        return;
+      }
+
+      if (code === 'KeyL' && phaseRef.current === 'playing') {
+        handleToggleBattleLog();
         return;
       }
 
@@ -760,6 +983,7 @@ export default function App() {
       else if (code === 'KeyX') handleTriggerPower('blitz');
       else if (code === 'KeyC') handleTriggerPower('shield');
       else if (code === 'KeyA') handleRallySelected();
+      else if (code === 'KeyS') handleToggleSupplyMode();
       else if (code === 'KeyF') handleCycleSpeed();
       else if (code === 'KeyN') handleNewMapInGame();
       else if (code === 'Tab') {
@@ -792,15 +1016,49 @@ export default function App() {
     handleQuickAttackSpace,
     handleRallySelected,
     handleStartFromTitle,
+    handleToggleBattleLog,
+    handleToggleMusic,
     handleToggleMute,
     handleTogglePause,
+    handleToggleSupplyMode,
     handleTriggerPower,
+    setSupplyModeSynced,
   ]);
+
+  // Optional URL query hook (?test_end=victory) for automated Timelapse verification without any debug UI
+  useEffect(() => {
+    const testEnd = getTestEndMode();
+    if (!testEnd || phaseRef.current !== 'playing') return;
+    const timer = window.setTimeout(() => {
+      const sim = simRef.current;
+      const total = sim.territories.length;
+      const steps = [0.25, 0.5, 0.75, 1];
+      for (let s = 0; s < steps.length; s++) {
+        const limit = Math.ceil(total * steps[s]);
+        sim.stats.elapsedSeconds = (s + 1) * 14;
+        for (let i = 0; i < limit; i++) {
+          sim.territories[i].owner = testEnd === 'victory' ? 0 : 1;
+        }
+        recordTimelapseSnapshot(sim, true);
+      }
+      sim.outcome = testEnd;
+      sim.mapDirty = true;
+      phaseRef.current = 'gameover';
+      document.body.dataset.state = 'gameover';
+      soundEngine.setMusicState(false);
+      syncHud();
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [syncHud]);
 
   // Mount Canvas2D renderer, ResizeObserver, & isolated 60fps simulation loop ONCE
   useEffect(() => {
     const renderer = new GameRenderer();
     rendererRef.current = renderer;
+
+    if (phaseRef.current === 'playing') {
+      soundEngine.setMusicState(true, computeBattleIntensity(simRef.current));
+    }
 
     const canvas = canvasRef.current;
     let needsStaticRender = true;
@@ -847,16 +1105,22 @@ export default function App() {
         renderer.consumeEvents(events);
         renderer.updateEffects(dt, sim, false);
         handleEventsAudio(events, true);
+        if (events.length > 0) {
+          pushBattleEvents(events);
+        }
 
         if (sim.outcome !== 'none') {
           phaseRef.current = 'gameover';
           document.body.dataset.state = 'gameover';
+          setSupplyModeSynced(false);
+          soundEngine.setMusicState(false);
           needsStaticRender = true;
           syncHud();
         } else {
           hudTimer += dt;
           if (hudTimer >= 0.16) {
             hudTimer = 0;
+            soundEngine.setBattleIntensity(computeBattleIntensity(sim));
             syncHud();
           }
         }
@@ -879,7 +1143,8 @@ export default function App() {
           timeSec,
           phase === 'title',
           dragAimRef.current,
-          sendRatioRef.current
+          sendRatioRef.current,
+          supplyModeRef.current
         );
         needsStaticRender = false;
       }
@@ -891,11 +1156,12 @@ export default function App() {
     return () => {
       window.cancelAnimationFrame(rafId);
       ro?.disconnect();
+      soundEngine.setMusicState(false);
       if (toastTimeoutRef.current !== null) {
         window.clearTimeout(toastTimeoutRef.current);
       }
     };
-  }, [handleEventsAudio, syncHud]);
+  }, [handleEventsAudio, pushBattleEvents, setSupplyModeSynced, syncHud]);
 
   const showRotatePrompt = viewport.isPortraitPhone && !portraitDismissed;
 
@@ -907,10 +1173,12 @@ export default function App() {
           hud={hud}
           compact={viewport.isCompact}
           muted={muted}
+          musicMuted={musicMuted}
           gameSpeed={gameSpeed}
           onCycleSpeed={handleCycleSpeed}
           onOpenShortcuts={() => setShortcutsOpen(true)}
           onNewMap={handleNewMapInGame}
+          onToggleMusic={handleToggleMusic}
           onToggleMute={handleToggleMute}
           onTogglePause={handleTogglePause}
         />
@@ -921,16 +1189,19 @@ export default function App() {
         {hud.phase !== 'title' && !viewport.isCompact && (
           <CommandSidebar
             hud={hud}
+            supplyMode={supplyMode}
             onChangeSendRatio={handleChangeSendRatio}
             onBuild={handleBuild}
             onTriggerPower={handleTriggerPower}
             onRally={handleRallySelected}
+            onToggleSupplyMode={handleToggleSupplyMode}
+            onClearSupply={handleClearSupply}
             onOpenShortcuts={() => setShortcutsOpen(true)}
             onNewMap={handleNewMapInGame}
           />
         )}
 
-        {/* Map Canvas Container — 100% unobstructed by any floating panels */}
+        {/* Map Canvas Container */}
         <div
           className="relative flex-1 min-w-0 min-h-0 bg-[#0c1626]"
           data-testid="map-stage"
@@ -938,6 +1209,7 @@ export default function App() {
           data-speed={gameSpeed}
           data-player-territories={hud.playerTerritories}
           data-selected-id={hud.selectedId ?? ''}
+          data-supply-mode={supplyMode ? 'on' : 'off'}
         >
           <canvas
             ref={canvasRef}
@@ -949,8 +1221,20 @@ export default function App() {
             onPointerLeave={handleCanvasPointerLeave}
             onContextMenu={handleCanvasContextMenu}
             onWheel={handleCanvasWheel}
-            className="w-full h-full block cursor-pointer touch-none"
+            className={`w-full h-full block touch-none ${
+              supplyMode ? 'cursor-crosshair' : 'cursor-pointer'
+            }`}
           />
+
+          {/* Collapsible Corner Battle Log */}
+          {hud.phase === 'playing' && (
+            <BattleLogPanel
+              entries={battleLog}
+              open={logOpen}
+              compact={viewport.isCompact}
+              onToggle={handleToggleBattleLog}
+            />
+          )}
 
           {/* Non-intrusive tactical feedback toast */}
           {toast && hud.phase === 'playing' && (
@@ -973,10 +1257,13 @@ export default function App() {
       {hud.phase !== 'title' && viewport.isCompact && (
         <MobileCommandBar
           hud={hud}
+          supplyMode={supplyMode}
           onCycleSendRatio={handleCycleSendRatio}
           onBuild={handleBuild}
           onTriggerPower={handleTriggerPower}
           onRally={handleRallySelected}
+          onToggleSupplyMode={handleToggleSupplyMode}
+          onClearSupply={handleClearSupply}
         />
       )}
 
@@ -999,13 +1286,16 @@ export default function App() {
       {/* Keyboard & Gesture Shortcuts Guide Modal */}
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
-      {/* Pause / Victory / Defeat Modal */}
+      {/* Pause / Victory / Defeat Modal with Endgame Map Timelapse */}
       <StatusModal
         phase={hud.phase}
         outcome={hud.outcome}
         stats={hud.stats}
         playerTerritories={hud.playerTerritories}
         totalTerritories={hud.totalTerritories}
+        timelapseMap={simRef.current.map}
+        timelapseTerritories={simRef.current.territories}
+        timelapseSnapshots={simRef.current.timelapse}
         onResume={handleTogglePause}
         onRestartNewMap={handleNewMapInGame}
         onReturnTitle={handleReturnTitle}

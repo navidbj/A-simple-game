@@ -48,7 +48,154 @@ export function createInitialMatch(seed: number, difficulty: Difficulty): GameSi
     mapDirty: true,
     hitstopTimer: 0,
     shakeTrauma: 0,
+    timelapse: [
+      {
+        elapsed: 0,
+        owners: territories.map((t) => t.owner),
+      },
+    ],
+    timelapseTimer: 0,
   };
+}
+
+/** Records a lightweight territory-ownership snapshot for the Endgame Map Timelapse */
+export function recordTimelapseSnapshot(sim: GameSimulation, force = false) {
+  const owners = sim.territories.map((t) => t.owner);
+  const last = sim.timelapse[sim.timelapse.length - 1];
+  if (!force && last) {
+    const unchanged = last.owners.every((o, i) => o === owners[i]);
+    if (unchanged && sim.stats.elapsedSeconds - last.elapsed < 6) {
+      return;
+    }
+  }
+  // Keep timelapse crisp and memory-bounded (~120 frames max)
+  if (sim.timelapse.length >= 120) {
+    // Preserve frame 0 and thin out older intermediate frames
+    const compacted = [sim.timelapse[0]];
+    for (let i = 2; i < sim.timelapse.length; i += 2) {
+      compacted.push(sim.timelapse[i]);
+    }
+    sim.timelapse = compacted;
+  }
+  sim.timelapse.push({
+    elapsed: sim.stats.elapsedSeconds,
+    owners,
+  });
+}
+
+/** Computes live battle intensity tier (0 = calm, 1 = active skirmish, 2 = high-tension siege/endgame) */
+export function computeBattleIntensity(sim: GameSimulation): 0 | 1 | 2 {
+  let playerCount = 0;
+  for (const t of sim.territories) {
+    if (t.owner === 0) playerCount++;
+  }
+  const playerShare = playerCount / Math.max(1, sim.territories.length);
+
+  let enemyAttackingPlayer = false;
+  for (const tr of sim.troops) {
+    if (tr.owner !== 0 && sim.territories[tr.toId]?.owner === 0) {
+      enemyAttackingPlayer = true;
+      break;
+    }
+  }
+
+  if (
+    enemyAttackingPlayer ||
+    sim.powers.blitzTimer > 0 ||
+    playerShare >= 0.65 ||
+    sim.troops.length >= 5
+  ) {
+    return 2;
+  }
+  if (sim.troops.length >= 2 || sim.shakeTrauma > 0.15) {
+    return 1;
+  }
+  return 0;
+}
+
+export interface SupplyRouteResult {
+  ok: boolean;
+  action?: 'set' | 'cleared';
+  reason?: 'invalid' | 'not_owner' | 'not_neighbor' | 'target_not_friendly';
+}
+
+/** Sets or toggles an automatic rear-to-frontline reinforcement supply line between two adjacent friendly castles */
+export function setSupplyRoute(
+  sim: GameSimulation,
+  fromId: number,
+  toId: number,
+  requester: Exclude<FactionId, -1>,
+  events?: SimEvent[]
+): SupplyRouteResult {
+  if (fromId === toId) return { ok: false, reason: 'invalid' };
+  const from = sim.territories[fromId];
+  const to = sim.territories[toId];
+  if (!from || !to) return { ok: false, reason: 'invalid' };
+  if (from.owner !== requester) return { ok: false, reason: 'not_owner' };
+  if (!from.neighbors.includes(toId)) return { ok: false, reason: 'not_neighbor' };
+  if (to.owner !== requester) return { ok: false, reason: 'target_not_friendly' };
+
+  // Toggling an existing identical supply line cancels it cleanly
+  if (from.supplyTargetId === toId) {
+    from.supplyTargetId = null;
+    from.supplyTimer = 0;
+    events?.push({
+      type: 'supply_clear',
+      x: from.x,
+      y: from.y,
+      owner: requester,
+      territoryId: from.id,
+      territoryName: from.name,
+    });
+    return { ok: true, action: 'cleared' };
+  }
+
+  // Prevent infinite 2-way ping-pong loop between two adjacent friendly castles
+  if (to.supplyTargetId === fromId) {
+    to.supplyTargetId = null;
+    to.supplyTimer = 0;
+  }
+
+  from.supplyTargetId = toId;
+  // Trigger first caravan quickly (~0.7s) for instant visual feedback
+  from.supplyTimer = Math.max(0, ECONOMY.AUTO_SUPPLY_INTERVAL - 0.7);
+
+  events?.push({
+    type: 'supply_set',
+    x: from.x,
+    y: from.y,
+    toX: to.x,
+    toY: to.y,
+    owner: requester,
+    territoryId: from.id,
+    targetId: to.id,
+    territoryName: from.name,
+    targetName: to.name,
+  });
+
+  return { ok: true, action: 'set' };
+}
+
+/** Cancels an active Auto-Supply route on a castle */
+export function clearSupplyRoute(
+  sim: GameSimulation,
+  fromId: number,
+  requester: Exclude<FactionId, -1>,
+  events?: SimEvent[]
+): boolean {
+  const from = sim.territories[fromId];
+  if (!from || from.owner !== requester || from.supplyTargetId === null) return false;
+  from.supplyTargetId = null;
+  from.supplyTimer = 0;
+  events?.push({
+    type: 'supply_clear',
+    x: from.x,
+    y: from.y,
+    owner: requester,
+    territoryId: from.id,
+    territoryName: from.name,
+  });
+  return true;
 }
 
 /** Finds which territory contains a world point (direct castle radius + organic Voronoi lookup) */
@@ -136,6 +283,8 @@ export function buildStructure(
     x: t.x,
     y: t.y,
     owner: requester,
+    territoryId: t.id,
+    territoryName: t.name,
     building,
   });
 
@@ -181,6 +330,8 @@ export function triggerCommanderPower(
       x: t.x,
       y: t.y,
       owner: 0,
+      territoryId: t.id,
+      territoryName: t.name,
       amount: converted,
     });
     return true;
@@ -199,6 +350,8 @@ export function triggerCommanderPower(
       x: anchor.x,
       y: anchor.y,
       owner: 0,
+      territoryId: anchor.id,
+      territoryName: anchor.name,
     });
     return true;
   }
@@ -214,6 +367,8 @@ export function triggerCommanderPower(
       x: t.x,
       y: t.y,
       owner: 0,
+      territoryId: t.id,
+      territoryName: t.name,
     });
     return true;
   }
@@ -382,6 +537,7 @@ function resolveTroopArrival(
   }
 
   // Conquest!
+  const previousOwner = target.owner;
   const remaining = Math.max(1, (effectiveAttack - target.military) / Math.max(0.4, defenseMult));
   target.owner = troop.owner;
   target.military = Math.min(troop.count, remaining);
@@ -391,8 +547,18 @@ function resolveTroopArrival(
   target.hasMine = false;
   target.hasForge = false;
   target.shieldTimer = 0;
+  target.supplyTargetId = null;
+  target.supplyTimer = 0;
   target.capturePulse = 1.0;
   sim.mapDirty = true;
+
+  // Cancel any Auto-Supply routes that were feeding into this newly lost castle
+  for (const other of sim.territories) {
+    if (other.supplyTargetId === target.id && other.owner !== target.owner) {
+      other.supplyTargetId = null;
+      other.supplyTimer = 0;
+    }
+  }
 
   if (troop.owner === 0) {
     sim.stats.territoriesCaptured += 1;
@@ -403,6 +569,8 @@ function resolveTroopArrival(
     sim.shakeTrauma = Math.min(1, sim.shakeTrauma + 0.22);
   }
 
+  recordTimelapseSnapshot(sim, true);
+
   events.push({
     type: 'capture',
     x: target.x,
@@ -410,6 +578,9 @@ function resolveTroopArrival(
     fromX: troop.viaX,
     fromY: troop.viaY,
     owner: troop.owner,
+    previousOwner,
+    territoryId: target.id,
+    territoryName: target.name,
     amount: Math.round(target.military),
     isElite: troop.isElite,
     capturedByPlayer: troop.owner === 0,
@@ -766,6 +937,26 @@ export function stepSimulation(
     }
   }
 
+  // 1b. Tick Auto-Supply Reinforcement Lines (rear -> frontline automation)
+  if (!demoMode) {
+    for (const t of sim.territories) {
+      if (t.supplyTargetId === null) continue;
+      const dest = sim.territories[t.supplyTargetId];
+      if (t.owner === -1 || !dest || dest.owner !== t.owner || !t.neighbors.includes(dest.id)) {
+        t.supplyTargetId = null;
+        t.supplyTimer = 0;
+        continue;
+      }
+      t.supplyTimer += dt;
+      if (t.supplyTimer >= ECONOMY.AUTO_SUPPLY_INTERVAL) {
+        t.supplyTimer = 0;
+        if (t.military >= ECONOMY.AUTO_SUPPLY_MIN_MILITARY) {
+          dispatchTroops(sim, t.id, dest.id, ECONOMY.AUTO_SUPPLY_RATIO, t.owner, events);
+        }
+      }
+    }
+  }
+
   // 2. Advance Marching Troops along Border Crossing Curves
   for (let i = sim.troops.length - 1; i >= 0; i--) {
     const tr = sim.troops[i];
@@ -810,11 +1001,21 @@ export function stepSimulation(
     evaluateAI(sim, events, demoMode);
   }
 
+  // 3b. Periodic Timelapse Snapshot (every 4s during active play)
+  if (!demoMode) {
+    sim.timelapseTimer += dt;
+    if (sim.timelapseTimer >= 4.0) {
+      sim.timelapseTimer = 0;
+      recordTimelapseSnapshot(sim, false);
+    }
+  }
+
   // 4. Victory / Defeat Check (active gameplay only)
   if (!demoMode) {
     const outcome = checkGameOutcome(sim);
     if (outcome !== 'none' && sim.outcome === 'none') {
       sim.outcome = outcome;
+      recordTimelapseSnapshot(sim, true);
       events.push({
         type: outcome,
         x: sim.map.width * 0.5,

@@ -2,6 +2,7 @@ import type { HudSnapshot } from '../game/types';
 import {
   KeyboardIcon,
   MapDiceIcon,
+  MusicNoteIcon,
   PauseIcon,
   SoundIcon,
   SpeedIcon,
@@ -12,10 +13,12 @@ interface TopHudBarProps {
   hud: HudSnapshot;
   compact: boolean;
   muted: boolean;
+  musicMuted: boolean;
   gameSpeed: number;
   onCycleSpeed: () => void;
   onOpenShortcuts: () => void;
   onNewMap: () => void;
+  onToggleMusic: () => void;
   onToggleMute: () => void;
   onTogglePause: () => void;
 }
@@ -31,10 +34,12 @@ export function TopHudBar({
   hud,
   compact,
   muted,
+  musicMuted,
   gameSpeed,
   onCycleSpeed,
   onOpenShortcuts,
   onNewMap,
+  onToggleMusic,
   onToggleMute,
   onTogglePause,
 }: TopHudBarProps) {
@@ -118,6 +123,24 @@ export function TopHudBar({
             className="w-8 h-8 bg-[#182336] active:bg-[#23324b] border border-[#2c3d59] text-[#d6b472] flex items-center justify-center cursor-pointer"
           >
             <MapDiceIcon className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onToggleMusic();
+            }}
+            aria-label={musicMuted ? 'روشن کردن موسیقی ۱۶ بیتی (B)' : 'خاموش کردن موسیقی ۱۶ بیتی (B)'}
+            title={musicMuted ? 'روشن کردن موسیقی (B)' : 'خاموش کردن موسیقی (B)'}
+            className={`w-8 h-8 border flex items-center justify-center cursor-pointer ${
+              !musicMuted && !muted
+                ? 'bg-[#19283f] border-[#385378] text-[#fde68a]'
+                : 'bg-[#182336] border-[#2c3d59] text-[#94a3b8]'
+            }`}
+          >
+            <MusicNoteIcon muted={musicMuted || muted} className="w-3.5 h-3.5" />
           </button>
 
           <button
@@ -252,6 +275,24 @@ export function TopHudBar({
           className="w-9 h-9 bg-[#182336] hover:bg-[#23324b] border border-[#2c3d59] text-[#cbd5e1] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
         >
           <KeyboardIcon className="w-4 h-4" />
+        </button>
+
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            onToggleMusic();
+          }}
+          aria-label={musicMuted ? 'روشن کردن موسیقی ۱۶ بیتی (B)' : 'خاموش کردن موسیقی ۱۶ بیتی (B)'}
+          title={musicMuted ? 'روشن کردن موسیقی ۱۶ بیتی (B)' : 'خاموش کردن موسیقی ۱۶ بیتی (B)'}
+          className={`w-9 h-9 border flex items-center justify-center transition-colors cursor-pointer ${
+            !musicMuted && !muted
+              ? 'bg-[#19283f] hover:bg-[#233757] border-[#385378] text-[#fde68a]'
+              : 'bg-[#182336] hover:bg-[#23324b] border-[#2c3d59] text-[#94a3b8]'
+          }`}
+        >
+          <MusicNoteIcon muted={musicMuted || muted} className="w-4 h-4" />
         </button>
 
         <button

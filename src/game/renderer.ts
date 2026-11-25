@@ -137,6 +137,20 @@ export class GameRenderer {
         );
       } else if (ev.type === 'reinforce' && ev.owner === 0 && ev.amount) {
         this.spawnFloatingText(ev.x, ev.y, `+${Math.round(ev.amount)}`, '#86efac');
+      } else if (ev.type === 'supply_set' && ev.owner === 0) {
+        this.vfx.spawnRing(
+          'dispatch',
+          ev.x,
+          ev.y - 2,
+          '#34d399',
+          10,
+          34,
+          0.35,
+          2,
+          (ev.toX ?? ev.x + 10) - ev.x,
+          (ev.toY ?? ev.y) - ev.y
+        );
+        this.spawnFloatingText(ev.x, ev.y - 16, 'خط تأمین فعال شد', '#6ee7b7');
       }
     }
   }
@@ -459,7 +473,8 @@ export class GameRenderer {
     timeSec: number,
     isTitleBackdrop = false,
     dragAim: DragAimState | null = null,
-    sendRatio = 0.5
+    sendRatio = 0.5,
+    supplyMode = false
   ) {
     if (sim.mapDirty) {
       this.rebuildTerrainBuffer(sim);
@@ -508,6 +523,11 @@ export class GameRenderer {
     const activeOrigin = activeOriginId !== null ? sim.territories[activeOriginId] : null;
     const activeHoverId = dragAim?.active ? dragAim.hoverTargetId : hoveredId;
 
+    // 2b. Active Auto-Supply Reinforcement Conveyor Lines (emerald pixel chevrons)
+    if (!isTitleBackdrop) {
+      this.drawSupplyLines(ctx, sim, timeSec);
+    }
+
     // 3. Incoming Enemy Threat Sightlines toward Player Castles
     const threatenedPlayerIds = new Set<number>();
     if (!isTitleBackdrop) {
@@ -516,7 +536,7 @@ export class GameRenderer {
 
     // 4. Highlight Valid Border Attack / Reinforce Routes when a player castle is selected
     if (activeOrigin && activeOrigin.owner === 0 && !isTitleBackdrop) {
-      this.drawSelectedRoutes(ctx, sim, activeOrigin, activeHoverId, timeSec);
+      this.drawSelectedRoutes(ctx, sim, activeOrigin, activeHoverId, timeSec, supplyMode);
     }
 
     // 5. Pixel Hover Target Corner Brackets
@@ -527,11 +547,15 @@ export class GameRenderer {
           activeOrigin !== null &&
           activeOrigin.owner === 0 &&
           activeOrigin.neighbors.includes(hov.id);
-        const col = isLegalTarget
-          ? hov.owner === 0
-            ? '#4ade80'
-            : '#fde047'
-          : 'rgba(237, 231, 217, 0.6)';
+        const col = supplyMode
+          ? isLegalTarget && hov.owner === 0
+            ? '#34d399'
+            : '#f87171'
+          : isLegalTarget
+            ? hov.owner === 0
+              ? '#4ade80'
+              : '#fde047'
+            : 'rgba(237, 231, 217, 0.6)';
         this.drawPixelBrackets(ctx, hov.x, hov.y - 4, 34, col);
       }
     }
@@ -810,25 +834,90 @@ export class GameRenderer {
     ctx.fillRect(x1 - th, y1 - len, th, len);
   }
 
+  /** Draws persistent animated emerald pixel conveyor chevrons for active Auto-Supply lines */
+  private drawSupplyLines(ctx: CanvasRenderingContext2D, sim: GameSimulation, timeSec: number) {
+    ctx.save();
+    for (const from of sim.territories) {
+      if (from.owner !== 0 || from.supplyTargetId === null) continue;
+      const to = sim.territories[from.supplyTargetId];
+      if (!to || to.owner !== 0) continue;
+
+      const via = from.borderCrossings[to.id] ?? {
+        x: (from.x + to.x) * 0.5,
+        y: (from.y + to.y) * 0.5,
+      };
+
+      // Soft emerald supply rail under chevrons
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.quadraticCurveTo(via.x, via.y, to.x, to.y);
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.36)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // Animated pixel supply chevrons flowing from rear -> frontline
+      const chevronCount = 6;
+      const phase = (timeSec * 0.85) % 1;
+      for (let i = 0; i < chevronCount; i++) {
+        const u = (i + phase) / chevronCount;
+        if (u < 0.14 || u > 0.88) continue;
+        const mt = 1 - u;
+        const px = mt * mt * from.x + 2 * mt * u * via.x + u * u * to.x;
+        const py = mt * mt * from.y + 2 * mt * u * via.y + u * u * to.y;
+
+        // Tangent along Quadratic Bezier for arrow direction
+        const tx = 2 * mt * (via.x - from.x) + 2 * u * (to.x - via.x);
+        const ty = 2 * mt * (via.y - from.y) + 2 * u * (to.y - via.y);
+        const tLen = Math.hypot(tx, ty) || 1;
+        const dx = tx / tLen;
+        const dy = ty / tLen;
+        const nx = -dy;
+        const ny = dx;
+
+        const rx = Math.round(px);
+        const ry = Math.round(py);
+        ctx.fillStyle = '#090e18';
+        ctx.fillRect(rx - 3, ry - 3, 6, 6);
+        ctx.fillStyle = '#6ee7b7';
+        ctx.fillRect(rx - 2, ry - 2, 4, 4);
+
+        // Two trailing chevron wings
+        for (const side of [-1, 1]) {
+          const wx = Math.round(px - dx * 4 + nx * side * 4);
+          const wy = Math.round(py - dy * 4 + ny * side * 4);
+          ctx.fillStyle = '#090e18';
+          ctx.fillRect(wx - 2, wy - 2, 4, 4);
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect(wx - 1, wy - 1, 2, 2);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
   private drawSelectedRoutes(
     ctx: CanvasRenderingContext2D,
     sim: GameSimulation,
     selected: Territory,
     hoveredId: number | null,
-    timeSec: number
+    timeSec: number,
+    supplyMode = false
   ) {
     ctx.save();
     for (const nId of selected.neighbors) {
       const target = sim.territories[nId];
+      const isFriendly = target.owner === selected.owner;
+      // In Supply Mode, highlight only adjacent friendly castles cleanly
+      if (supplyMode && !isFriendly) continue;
+
       const via = selected.borderCrossings[nId] ?? {
         x: (selected.x + target.x) * 0.5,
         y: (selected.y + target.y) * 0.5,
       };
-      const isFriendly = target.owner === selected.owner;
       const isHovered = hoveredId === nId;
 
       const dotCount = 14;
-      const phase = (timeSec * 1.4) % 1;
+      const phase = (timeSec * (supplyMode ? 2.1 : 1.4)) % 1;
       for (let i = 0; i < dotCount; i++) {
         const u = (i + phase) / dotCount;
         if (u < 0.08 || u > 0.92) continue;
@@ -836,16 +925,18 @@ export class GameRenderer {
         const px = Math.round(mt * mt * selected.x + 2 * mt * u * via.x + u * u * target.x);
         const py = Math.round(mt * mt * selected.y + 2 * mt * u * via.y + u * u * target.y);
 
-        const sz = isHovered ? 5 : 4;
+        const sz = isHovered || supplyMode ? 5 : 4;
         ctx.fillStyle = '#0b101a';
         ctx.fillRect(px - 1, py - 1, sz + 2, sz + 2);
-        ctx.fillStyle = isFriendly
-          ? isHovered
-            ? '#86efac'
-            : '#4ade80'
-          : isHovered
-            ? '#fef08a'
-            : '#fbbf24';
+        ctx.fillStyle = supplyMode
+          ? '#34d399'
+          : isFriendly
+            ? isHovered
+              ? '#86efac'
+              : '#4ade80'
+            : isHovered
+              ? '#fef08a'
+              : '#fbbf24';
         ctx.fillRect(px, py, sz, sz);
       }
 
@@ -853,7 +944,7 @@ export class GameRenderer {
       const by = Math.round(via.y);
       ctx.fillStyle = '#0b101a';
       ctx.fillRect(bx - 5, by - 5, 10, 10);
-      ctx.fillStyle = isFriendly ? '#4ade80' : '#fbbf24';
+      ctx.fillStyle = supplyMode ? '#6ee7b7' : isFriendly ? '#4ade80' : '#fbbf24';
       ctx.fillRect(bx - 3, by - 3, 6, 6);
     }
     ctx.restore();

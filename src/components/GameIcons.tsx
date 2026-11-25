@@ -288,3 +288,39 @@ export function KeyboardIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function SupplyRouteIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
+      {/* Origin castle node -> animated conveyor chevrons -> frontline node */}
+      <rect x="2" y="9" width="5" height="6" fill="currentColor" />
+      <path d="M9 12H15M13 9L16 12L13 15" stroke="currentColor" strokeWidth="2" strokeLinecap="square" />
+      <rect x="17" y="8" width="5" height="8" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+export function MusicNoteIcon({ muted, ...props }: SVGProps<SVGSVGElement> & { muted?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
+      <path d="M9 17V6L19 4V15" stroke="currentColor" strokeWidth="2" strokeLinecap="square" />
+      <rect x="5" y="15" width="4" height="4" fill="currentColor" />
+      <rect x="15" y="13" width="4" height="4" fill="currentColor" />
+      {muted && (
+        <path d="M4 4L20 20" stroke="#f87171" strokeWidth="2.2" strokeLinecap="square" />
+      )}
+    </svg>
+  );
+}
+
+export function LogScrollIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
+      <rect x="4" y="4" width="16" height="16" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="7" y="8" width="10" height="2" fill="currentColor" />
+      <rect x="7" y="12" width="8" height="2" fill="currentColor" />
+      <rect x="7" y="16" width="6" height="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+

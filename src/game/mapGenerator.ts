@@ -383,6 +383,8 @@ export function generateOrganicMap(
       capturePulse: 0,
       towerFireTimer: 0,
       shieldTimer: 0,
+      supplyTargetId: null,
+      supplyTimer: 0,
     };
   });
 

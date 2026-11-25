@@ -14,15 +14,19 @@ import {
   MobilizeIcon,
   RallyIcon,
   ShieldPowerIcon,
+  SupplyRouteIcon,
   WarForgeIcon,
 } from './GameIcons';
 
 interface MobileCommandBarProps {
   hud: HudSnapshot;
+  supplyMode: boolean;
   onCycleSendRatio: () => void;
   onBuild: (type: BuildingType) => void;
   onTriggerPower: (power: PowerType) => void;
   onRally: () => void;
+  onToggleSupplyMode: () => void;
+  onClearSupply: () => void;
 }
 
 const BUILDING_ITEMS: Array<{ type: BuildingType; shortLabel: string }> = [
@@ -53,10 +57,13 @@ function PowerSvg({ type }: { type: PowerType }) {
 
 export function MobileCommandBar({
   hud,
+  supplyMode,
   onCycleSendRatio,
   onBuild,
   onTriggerPower,
   onRally,
+  onToggleSupplyMode,
+  onClearSupply,
 }: MobileCommandBarProps) {
   const sel = hud.selectedTerritory;
   const isPlayerOwned = sel !== null && sel.owner === 0;
@@ -139,6 +146,31 @@ export function MobileCommandBar({
           <RallyIcon className="w-4 h-4 shrink-0" />
           <span className="text-[9px] font-extrabold leading-tight mt-0.5 whitespace-nowrap">
             کمکی
+          </span>
+        </button>
+
+        {/* 3b. Quick Auto-Supply Route Button */}
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={!isPlayerOwned || (!sel?.supplyTargetName && (sel?.friendlyNeighborCount ?? 0) === 0)}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            if (sel?.supplyTargetName) onClearSupply();
+            else onToggleSupplyMode();
+          }}
+          aria-label={sel?.supplyTargetName ? 'لغو خط تأمین خودکار' : 'تنظیم خط تأمین خودکار'}
+          className={`min-w-[50px] min-h-[46px] shrink-0 px-1.5 py-1 border-2 flex flex-col items-center justify-center transition-colors ${
+            sel?.supplyTargetName || supplyMode
+              ? 'bg-[#0f3529] border-[#34d399] text-[#6ee7b7] cursor-pointer'
+              : isPlayerOwned && (sel?.friendlyNeighborCount ?? 0) > 0
+                ? 'bg-[#152433] active:bg-[#1e354a] border-[#2e526b] text-[#bae6fd] cursor-pointer'
+                : 'bg-[#101827] border-[#1f2c40] text-[#475569] cursor-not-allowed'
+          }`}
+        >
+          <SupplyRouteIcon className="w-4 h-4 shrink-0" />
+          <span className="text-[9px] font-extrabold leading-tight mt-0.5 whitespace-nowrap">
+            {sel?.supplyTargetName ? 'لغو خط' : supplyMode ? 'مقصد؟' : 'تأمین'}
           </span>
         </button>
 
