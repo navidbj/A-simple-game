@@ -1120,10 +1120,14 @@ export function stepSimulation(
   sim: GameSimulation,
   rawDt: number,
   demoMode = false,
-  speedMultiplier = 1.0
+  speedMultiplier = 1.0,
+  troopSpeedScale = 1.0
 ): SimEvent[] {
   const clamped = Math.min(Math.max(rawDt, 0), 0.05);
   const dt = clamped * Math.max(0.5, Math.min(2.5, speedMultiplier));
+  const clampedTroopScale = Number.isFinite(troopSpeedScale)
+    ? Math.max(0.7, Math.min(1.6, troopSpeedScale))
+    : 1.0;
   const events: SimEvent[] = [];
 
   // Decay visual timers in real-time (independent of speedMultiplier)
@@ -1203,7 +1207,8 @@ export function stepSimulation(
       Math.hypot(tr.targetX - tr.viaX, tr.targetY - tr.viaY);
 
     const speedMult =
-      tr.owner === 0 && sim.powers.blitzTimer > 0 ? ECONOMY.BLITZ_SPEED_MULTIPLIER : 1.0;
+      (tr.owner === 0 && sim.powers.blitzTimer > 0 ? ECONOMY.BLITZ_SPEED_MULTIPLIER : 1.0) *
+      clampedTroopScale;
     const stepProgress = (tr.speed * speedMult * dt) / Math.max(40, approxLen);
     tr.progress += stepProgress;
 

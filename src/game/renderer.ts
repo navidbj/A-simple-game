@@ -13,9 +13,32 @@ import type {
   DragAimState,
   FloatingText,
   GameSimulation,
+  MusicSyncState,
   SimEvent,
   Territory,
 } from './types';
+
+export function advanceMarchClock(
+  prevTime: number,
+  dt: number,
+  troopSpeedScale = 1.0
+): number {
+  const safeDt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+  const safeScale = Number.isFinite(troopSpeedScale)
+    ? Math.max(0.7, Math.min(1.6, troopSpeedScale))
+    : 1.0;
+  return prevTime + safeDt * safeScale;
+}
+
+const NEUTRAL_MUSIC_SYNC: MusicSyncState = {
+  active: false,
+  energy: 0,
+  bassEnergy: 0,
+  beatPhase: 0,
+  beatPulse: 0,
+  tempoScale: 1.0,
+  troopSpeedScale: 1.0,
+};
 
 function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace('#', '');
@@ -82,6 +105,7 @@ export class GameRenderer {
   private vfx: ParticleSystem;
   private texts: FloatingText[];
   private textCursor = 0;
+  private marchAnimTime = 0;
   private oceanSparkles: Array<{ x: number; y: number; phase: number }> = [];
   private animatedWindmills: Array<{ x: number; y: number; phase: number }> = [];
   private animatedVillages: Array<{ x: number; y: number; phase: number }> = [];
@@ -145,6 +169,7 @@ export class GameRenderer {
 
   public clearEffects() {
     this.vfx.clear();
+    this.marchAnimTime = 0;
     for (const t of this.texts) t.active = false;
   }
 
@@ -210,7 +235,13 @@ export class GameRenderer {
     }
   }
 
-  public updateEffects(dt: number, sim?: GameSimulation, isTitleBackdrop = false) {
+  public updateEffects(
+    dt: number,
+    sim?: GameSimulation,
+    isTitleBackdrop = false,
+    troopSpeedScale = 1.0
+  ) {
+    this.marchAnimTime = advanceMarchClock(this.marchAnimTime, dt, troopSpeedScale);
     if (sim) {
       this.vfx.emitAmbient(sim, dt, isTitleBackdrop);
     }
@@ -940,7 +971,8 @@ export class GameRenderer {
     timeSec: number,
     isTitleBackdrop = false,
     dragAim: DragAimState | null = null,
-    sendRatio = 0.5
+    sendRatio = 0.5,
+    musicSync: MusicSyncState = NEUTRAL_MUSIC_SYNC
   ) {
     if (sim.mapDirty) {
       this.rebuildTerrainBuffer(sim);
@@ -1008,7 +1040,7 @@ export class GameRenderer {
     ctx.drawImage(this.bgCanvas, 0, 0);
 
     // 2. Animated Living Ocean (Wave Glints, Rolling Shoreline Surf, Ambient Boats & Sea Life) + River Shimmer
-    this.drawLivingWorldDetails(ctx, sim, timeSec);
+    this.drawLivingWorldDetails(ctx, sim, timeSec, musicSync);
 
     // Determine active player origin (either currently dragging or selected)
     const activeOriginId = dragAim?.active ? dragAim.originId : selectedId;
@@ -1068,7 +1100,8 @@ export class GameRenderer {
         targetCheck.allowed && targetCheck.isNaval,
         !isTitleBackdrop && threatenedPlayerIds.has(t.id),
         timeSec,
-        isTitleBackdrop
+        isTitleBackdrop,
+        musicSync
       );
     }
 
@@ -1077,9 +1110,9 @@ export class GameRenderer {
     const blitzActive = sim.powers.blitzTimer > 0;
     for (const tr of sortedTroops) {
       if (tr.isNaval) {
-        this.drawPixelWarship(ctx, tr, timeSec, blitzActive && tr.owner === 0);
+        this.drawPixelWarship(ctx, tr, blitzActive && tr.owner === 0, musicSync);
       } else {
-        this.drawPixelSoldierSquad(ctx, tr, timeSec, blitzActive && tr.owner === 0);
+        this.drawPixelSoldierSquad(ctx, tr, blitzActive && tr.owner === 0, musicSync);
       }
     }
 
@@ -1122,15 +1155,18 @@ export class GameRenderer {
   private drawLivingWorldDetails(
     ctx: CanvasRenderingContext2D,
     sim: GameSimulation,
-    timeSec: number
+    timeSec: number,
+    musicSync: MusicSyncState = NEUTRAL_MUSIC_SYNC
   ) {
     const { map } = sim;
+    const glintBoost = musicSync.active ? musicSync.beatPulse * 0.14 + musicSync.energy * 0.1 : 0;
 
     // 2a. Open-ocean wave glints
     for (const sp of this.oceanSparkles) {
       const wave = Math.sin(timeSec * 2.3 + sp.phase);
-      if (wave > 0.42) {
-        ctx.fillStyle = 'rgba(148, 224, 240, 0.46)';
+      if (wave > 0.42 - glintBoost * 0.4) {
+        ctx.fillStyle =
+          glintBoost > 0.12 ? 'rgba(186, 238, 250, 0.56)' : 'rgba(148, 224, 240, 0.46)';
         ctx.fillRect(sp.x, sp.y, 6, 2);
         ctx.fillRect(sp.x + 2, sp.y - 2, 2, 2);
       }
@@ -1588,7 +1624,8 @@ export class GameRenderer {
     isNavalTarget: boolean,
     isThreatened: boolean,
     timeSec: number,
-    isTitleBackdrop: boolean
+    isTitleBackdrop: boolean,
+    musicSync: MusicSyncState = NEUTRAL_MUSIC_SYNC
   ) {
     const faction = t.owner === -1 ? null : FACTIONS[t.owner];
     const glowColor = faction ? faction.borderGlow : NEUTRAL_STYLE.borderGlow;
@@ -1665,12 +1702,15 @@ export class GameRenderer {
       ctx.globalAlpha = 1;
     }
 
-    // 2. Selection / Target / Threat pixel brackets
+    // 2. Selection / Target / Threat pixel brackets + subtle beat-synced castle border breath
     if (isSelected) {
-      const stepOffset = Math.sin(timeSec * 6) > 0 ? 1 : 0;
+      const beatLift = musicSync.active && musicSync.beatPulse > 0.55 ? 1 : 0;
+      const stepOffset = beatLift || (Math.sin(timeSec * 6) > 0 ? 1 : 0);
       this.drawPixelBrackets(ctx, cx, cy - 4, 34 + stepOffset, '#fde047');
     } else if (isThreatened) {
-      const blink = Math.floor(timeSec * 6) % 2 === 0;
+      const blink = musicSync.active
+        ? musicSync.beatPulse > 0.5
+        : Math.floor(timeSec * 6) % 2 === 0;
       this.drawPixelBrackets(ctx, cx, cy - 4, 34, blink ? '#ef4444' : '#fca5a5');
     } else if (isValidTarget) {
       this.drawPixelBrackets(
@@ -1684,6 +1724,9 @@ export class GameRenderer {
             ? 'rgba(74, 222, 128, 0.75)'
             : 'rgba(251, 191, 36, 0.75)'
       );
+    } else if (musicSync.active && t.owner === 0 && !isTitleBackdrop && musicSync.beatPulse > 0.58) {
+      ctx.fillStyle = `rgba(255, 193, 197, ${(0.08 + musicSync.energy * 0.14).toFixed(3)})`;
+      ctx.fillRect(cx - 25, cy + 8, 50, 2);
     }
 
     // 3. Royal Shield Commander Power Glowing Pixel Barrier
@@ -1798,7 +1841,8 @@ export class GameRenderer {
 
     // Subtle gilded radial aura under Grand Imperial Citadels
     if (isGrand && t.hitFlash <= 0) {
-      const auraPulse = 0.14 + 0.07 * Math.sin(timeSec * 3.2 + t.id);
+      const beatLift = musicSync.active ? musicSync.beatPulse * 0.055 : 0;
+      const auraPulse = 0.14 + 0.07 * Math.sin(timeSec * 3.2 + t.id) + beatLift;
       ctx.fillStyle = `rgba(250, 204, 21, ${auraPulse.toFixed(3)})`;
       ctx.fillRect(cx - 26, cy + 5, 52, 8);
     }
@@ -1893,8 +1937,10 @@ export class GameRenderer {
     // Subtle warm gate hearth pulse on active faction castles (living fortress feel)
     if (t.owner >= 0 && t.hitFlash <= 0) {
       const gateStep = Math.floor((0.5 + 0.5 * Math.sin(timeSec * 3.1 + t.id * 2.1)) * 3);
-      if (gateStep >= 1) {
-        ctx.fillStyle = gateStep === 2 ? 'rgba(253, 224, 71, 0.55)' : 'rgba(249, 115, 22, 0.34)';
+      const beatBright = musicSync.active && musicSync.beatPulse > 0.62 && musicSync.bassEnergy > 0.35;
+      if (gateStep >= 1 || beatBright) {
+        ctx.fillStyle =
+          gateStep === 2 || beatBright ? 'rgba(253, 224, 71, 0.55)' : 'rgba(249, 115, 22, 0.34)';
         ctx.fillRect(cx - 2, cy - 1, 4, 4);
       }
     }
@@ -1985,8 +2031,8 @@ export class GameRenderer {
   private drawPixelSoldierSquad(
     ctx: CanvasRenderingContext2D,
     tr: GameSimulation['troops'][number],
-    timeSec: number,
-    blitzBoost: boolean
+    blitzBoost: boolean,
+    musicSync: MusicSyncState = NEUTRAL_MUSIC_SYNC
   ) {
     const faction = FACTIONS[tr.owner];
     const sprites = this.atlas.getFaction(tr.owner);
@@ -1994,7 +2040,9 @@ export class GameRenderer {
     const cx = Math.round(tr.x);
     const cy = Math.round(tr.y);
     const animSpeed = blitzBoost ? 16 : 9;
-    const frameIdx = Math.floor(timeSec * animSpeed + tr.id * 1.7) % 2;
+    const frameIdx = Math.floor(this.marchAnimTime * animSpeed + tr.id * 1.7) % 2;
+    const beatStepLift =
+      musicSync.active && musicSync.bassEnergy > 0.28 && musicSync.beatPulse > 0.56 ? -1 : 0;
 
     const offsets: Array<{ ox: number; oy: number; elite: boolean; phase: number }> =
       tr.count >= 28 || tr.isElite
@@ -2020,11 +2068,15 @@ export class GameRenderer {
 
     const trailDir = tr.facingLeft ? 1 : -1;
 
-    // Subtle marching dust pixel specks behind army boots
-    const dustPhase = Math.floor(timeSec * 10 + tr.id) % 3;
-    ctx.fillStyle = 'rgba(229, 214, 179, 0.38)';
+    // Subtle marching dust pixel specks behind army boots (brighter & longer trail on kick surges)
+    const dustPhase = Math.floor(this.marchAnimTime * 10 + tr.id) % 3;
+    ctx.fillStyle =
+      musicSync.troopSpeedScale > 1.15 ? 'rgba(244, 232, 200, 0.56)' : 'rgba(229, 214, 179, 0.38)';
     ctx.fillRect(cx + trailDir * (12 + dustPhase * 3), cy + 8, 3, 3);
     ctx.fillRect(cx + trailDir * (16 + ((dustPhase + 1) % 3) * 3), cy + 5, 2, 2);
+    if (musicSync.troopSpeedScale > 1.18) {
+      ctx.fillRect(cx + trailDir * (20 + dustPhase * 2), cy + 7, 2, 2);
+    }
 
     // Speed-line pixel trail during Blitz Commander Power
     if (blitzBoost) {
@@ -2049,7 +2101,7 @@ export class GameRenderer {
       const dw = Math.round(spr.width * scale);
       const dh = Math.round(spr.height * scale);
       const ux = Math.round(cx + unit.ox);
-      const uy = Math.round(cy + unit.oy);
+      const uy = Math.round(cy + unit.oy + (unit.phase === 0 ? beatStepLift : 0));
 
       ctx.fillStyle = 'rgba(9, 13, 22, 0.52)';
       ctx.fillRect(ux - 6, uy + Math.round(dh * 0.34), 12, 3);
@@ -2091,15 +2143,16 @@ export class GameRenderer {
   private drawPixelWarship(
     ctx: CanvasRenderingContext2D,
     tr: GameSimulation['troops'][number],
-    timeSec: number,
-    blitzBoost: boolean
+    blitzBoost: boolean,
+    musicSync: MusicSyncState = NEUTRAL_MUSIC_SYNC
   ) {
     const faction = FACTIONS[tr.owner];
     const sprites = this.atlas.getFaction(tr.owner);
     const cx = Math.round(tr.x);
-    const cy = Math.round(tr.y);
+    const waveLift = musicSync.active && musicSync.beatPulse > 0.58 ? -1 : 0;
+    const cy = Math.round(tr.y + waveLift);
     const animSpeed = blitzBoost ? 10 : 5;
-    const useA = Math.floor(timeSec * animSpeed + tr.id * 1.3) % 2 === 0;
+    const useA = Math.floor(this.marchAnimTime * animSpeed + tr.id * 1.3) % 2 === 0;
     const spr = tr.isElite
       ? useA
         ? sprites.eliteShipA
