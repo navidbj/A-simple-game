@@ -178,7 +178,7 @@ export function TimelapseCanvas({ map, territories, snapshots }: TimelapseCanvas
       </div>
 
       {/* Crisp Nearest-Neighbor Pixel Timelapse Map */}
-      <div className="w-full aspect-[1120/720] bg-[#0a1628] border border-[#1f2e47] overflow-hidden">
+      <div className="w-full aspect-[1080/720] bg-[#0a1628] border border-[#1f2e47] overflow-hidden">
         <canvas
           ref={canvasRef}
           className="w-full h-full block"

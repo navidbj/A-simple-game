@@ -1,7 +1,6 @@
 import {
   BIOMES,
   BUILDINGS,
-  ECONOMY,
   FACTIONS,
   NEUTRAL_STYLE,
   WORLD_HEIGHT,
@@ -9,7 +8,7 @@ import {
 } from './constants';
 import { ParticleSystem } from './particles';
 import { PixelSpriteAtlas } from './pixelSprites';
-import { canDispatchTo, getBuildingLevel, previewAttackOutcome } from './simulation';
+import { canDispatchTo, getBuildingLevel, getTerritoryRates, previewAttackOutcome } from './simulation';
 import type {
   DragAimState,
   FloatingText,
@@ -2017,7 +2016,7 @@ export class GameRenderer {
       ctx.fillText(`${Math.floor(t.manpower)}`, cx + 28, py + 10);
 
       // Crisp Pixel Manpower Progress Strip along bottom of plaque
-      const maxMp = t.hasMine ? ECONOMY.MINE_MAX_MANPOWER : ECONOMY.BASE_MAX_MANPOWER;
+      const maxMp = getTerritoryRates(t).maxManpower;
       const ratio = Math.min(1, t.manpower / maxMp);
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(px + 2, py + plateH - 4, plateW - 4, 3);
