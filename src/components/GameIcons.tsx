@@ -49,15 +49,16 @@ export function BarracksIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
       <path
-        d="M12 3L4 12L3 20H21L20 12L12 3Z"
-        fill="#334155"
+        d="M12 4L4 11V20H20V11L12 4Z"
+        fill="#d6ccb8"
         stroke="#0f172a"
         strokeWidth="1.6"
         strokeLinejoin="round"
       />
-      <path d="M12 3L16 12H8L12 3Z" fill="#ef4444" />
-      <path d="M9.5 20V14.5L12 12.5L14.5 14.5V20H9.5Z" fill="#0f172a" />
-      <path d="M12 3V1.5" stroke="#e2d9c8" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M12 4L4 11H20L12 4Z" fill="#dc2626" stroke="#0f172a" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M9.5 20V14C9.5 12.6 10.6 11.5 12 11.5C13.4 11.5 14.5 12.6 14.5 14V20H9.5Z" fill="#7c4d25" stroke="#0f172a" strokeWidth="1.2" />
+      <path d="M12 4V1.5" stroke="#f5b83d" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 1.5L16 2.8L12 4V1.5Z" fill="#f5b83d" />
     </svg>
   );
 }
@@ -66,13 +67,14 @@ export function GuardTowerIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
       <path
-        d="M6 4H9V6.5H11V4H13V6.5H15V4H18V9L16.5 10.5V20H7.5V10.5L6 9V4Z"
-        fill="#94a3b8"
+        d="M6.5 5H9V7H11V5H13V7H15V5H17.5V9.5L16 11V20H8V11L6.5 9.5V5Z"
+        fill="#e2d9c8"
         stroke="#0f172a"
         strokeWidth="1.6"
         strokeLinejoin="round"
       />
-      <path d="M12 11.5L15 13V15.5C15 17.2 13.7 18.4 12 19C10.3 18.4 9 17.2 9 15.5V13L12 11.5Z" fill="#38bdf8" stroke="#0f172a" strokeWidth="1.2" />
+      <path d="M8 10.5H16" stroke="#f5b83d" strokeWidth="1.5" />
+      <path d="M12 12L14.8 13.4V15.6C14.8 17.1 13.6 18.2 12 18.8C10.4 18.2 9.2 17.1 9.2 15.6V13.4L12 12Z" fill="#38bdf8" stroke="#0f172a" strokeWidth="1.2" />
     </svg>
   );
 }
@@ -82,16 +84,13 @@ export function GoldMineIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
       <path
         d="M3 19L7 9L12 5L17 9L21 19H3Z"
-        fill="#475569"
+        fill="#64748b"
         stroke="#0f172a"
         strokeWidth="1.6"
         strokeLinejoin="round"
       />
-      <path
-        d="M8.5 19V13C8.5 11.1 10.1 9.5 12 9.5C13.9 9.5 15.5 11.1 15.5 13V19H8.5Z"
-        fill="#0f172a"
-      />
-      <path d="M10 17.5L12 14.5L14 17.5H10Z" fill="#fbbf24" />
+      <path d="M8 19V12.5L12 9.5L16 12.5V19H8Z" fill="#1e293b" stroke="#7c4d25" strokeWidth="1.5" />
+      <path d="M10 17.5L12 14L14 17.5H10Z" fill="#f5b83d" />
       <circle cx="12" cy="7.5" r="1.4" fill="#fde047" />
     </svg>
   );
@@ -181,10 +180,10 @@ export function MapDiceIcon(props: SVGProps<SVGSVGElement>) {
 export function WarForgeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
-      <rect x="14" y="3" width="4" height="9" fill="#64748b" />
-      <rect x="15" y="2" width="2" height="2" fill="#94a3b8" />
-      <rect x="4" y="9" width="16" height="11" fill="#334155" />
-      <rect x="3" y="8" width="12" height="3" fill="#b45309" />
+      <rect x="14" y="3" width="4" height="9" fill="#94a3b8" />
+      <rect x="15" y="2" width="2" height="2" fill="#f5b83d" />
+      <rect x="4" y="9" width="16" height="11" fill="#475569" />
+      <rect x="3" y="8" width="12" height="3" fill="#f5b83d" />
       <rect x="7" y="13" width="6" height="6" fill="#0f172a" />
       <rect x="8" y="15" width="4" height="4" fill="#f97316" />
       <rect x="9" y="16" width="2" height="2" fill="#fde047" />
@@ -292,14 +291,14 @@ export function KeyboardIcon(props: SVGProps<SVGSVGElement>) {
 export function PortIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" shapeRendering="crispEdges" aria-hidden="true" {...props}>
-      <rect x="4" y="4" width="4" height="12" fill="#e2e8f0" />
-      <rect x="4" y="4" width="4" height="3" fill="#fde047" />
-      <rect x="4" y="9" width="4" height="3" fill="#ef4444" />
+      <rect x="4" y="4" width="4" height="11" fill="#f5efe0" />
+      <rect x="4" y="3" width="4" height="3" fill="#f5b83d" />
+      <rect x="4" y="8" width="4" height="3" fill="#dc2626" />
       <rect x="3" y="15" width="18" height="3" fill="#9a683a" />
       <rect x="5" y="18" width="2" height="3" fill="#5c3a1e" />
       <rect x="11" y="18" width="2" height="3" fill="#5c3a1e" />
       <rect x="17" y="18" width="2" height="3" fill="#5c3a1e" />
-      <path d="M13 6V14M13 6L19 10L13 13V6Z" fill="#38bdf8" />
+      <path d="M13 6V14M13 6L19 10L13 13V6Z" fill="#f5b83d" />
     </svg>
   );
 }
