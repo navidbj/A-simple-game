@@ -336,3 +336,39 @@ test('tactical preview, rallyReinforcements, castle cycling, weakest neighbor, a
   assert.ok(Math.abs(sim.stats.elapsedSeconds - (t0 + 0.1)) < 1e-6);
 });
 
+test('troopSpeedScale accelerates marching troops independently of economy and clamps extreme values', () => {
+  const simBase = createInitialMatch(5151, 'normal');
+  const simBoost = createInitialMatch(5151, 'normal');
+  const simExtremeLow = createInitialMatch(5151, 'normal');
+  const simExtremeHigh = createInitialMatch(5151, 'normal');
+
+  for (const s of [simBase, simBoost, simExtremeLow, simExtremeHigh]) {
+    const cap = s.territories.find((t) => t.owner === 0)!;
+    const target = s.territories[cap.neighbors[0]];
+    cap.military = 40;
+    dispatchTroops(s, cap.id, target.id, 0.5, 0);
+  }
+
+  const capBaseBefore = simBase.territories.find((t) => t.owner === 0)!.military;
+  const capBoostBefore = simBoost.territories.find((t) => t.owner === 0)!.military;
+
+  stepSimulation(simBase, 0.05, false, 1.0, 1.0);
+  stepSimulation(simBoost, 0.05, false, 1.0, 1.35);
+  stepSimulation(simExtremeLow, 0.05, false, 1.0, 0.1);
+  stepSimulation(simExtremeHigh, 0.05, false, 1.0, 5.0);
+
+  const pBase = simBase.troops[0].progress;
+  const pBoost = simBoost.troops[0].progress;
+  const pLow = simExtremeLow.troops[0].progress;
+  const pHigh = simExtremeHigh.troops[0].progress;
+
+  assert.ok(Math.abs(pBoost / pBase - 1.35) < 1e-6, '1.35 troopSpeedScale should scale troop march progress by 1.35x');
+  assert.ok(Math.abs(pLow / pBase - 0.7) < 1e-6, 'Extreme low troopSpeedScale should clamp to 0.7x');
+  assert.ok(Math.abs(pHigh / pBase - 1.6) < 1e-6, 'Extreme high troopSpeedScale should clamp to 1.6x');
+  assert.equal(simBase.stats.elapsedSeconds, simBoost.stats.elapsedSeconds);
+  assert.equal(
+    simBase.territories.find((t) => t.owner === 0)!.military - capBaseBefore,
+    simBoost.territories.find((t) => t.owner === 0)!.military - capBoostBefore
+  );
+});
+

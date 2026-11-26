@@ -233,6 +233,7 @@ export function useGameController() {
       setTimelapseData(null);
       setToast(null);
       if (nextPhase === 'playing') {
+        soundEngine.setMusicPaused(false);
         soundEngine.setMusicIntensity(0);
         soundEngine.startMusic();
       } else {
@@ -283,13 +284,14 @@ export function useGameController() {
       document.body.dataset.state = 'paused';
       clearPointerInteraction();
       setSupplyMode(false);
-      soundEngine.stopMusic();
+      soundEngine.setMusicPaused(true);
       soundEngine.playSelect();
       syncHud();
     } else if (phaseRef.current === 'paused') {
       phaseRef.current = 'playing';
       document.body.dataset.state = 'playing';
       soundEngine.playSelect();
+      soundEngine.setMusicPaused(false);
       soundEngine.startMusic();
       syncHud();
     }
@@ -1005,6 +1007,7 @@ export function useGameController() {
 
       const phase = phaseRef.current;
       let sim = simRef.current;
+      const musicSync = soundEngine.sampleMusicSync(dt);
 
       if (phase !== prevPhase) {
         prevPhase = phase;
@@ -1015,9 +1018,10 @@ export function useGameController() {
       }
 
       if (phase === 'playing') {
-        const events = stepSimulation(sim, dt, false, speedRef.current);
+        const effectiveSpeed = speedRef.current * musicSync.tempoScale;
+        const events = stepSimulation(sim, dt, false, effectiveSpeed, musicSync.troopSpeedScale);
         renderer.consumeEvents(events);
-        renderer.updateEffects(dt, sim, false);
+        renderer.updateEffects(dt * musicSync.tempoScale, sim, false, musicSync.troopSpeedScale);
         handleEventsAudio(events, true);
         recordBattleEvents(events);
 
@@ -1043,9 +1047,11 @@ export function useGameController() {
           }
         }
       } else if (phase === 'title') {
-        const events = stepSimulation(sim, dt * 0.65, true, 1.0);
+        const titleTempo = musicSync.active ? musicSync.tempoScale : 1.0;
+        const titleTroopScale = musicSync.active ? musicSync.troopSpeedScale : 1.0;
+        const events = stepSimulation(sim, dt * 0.65, true, titleTempo, titleTroopScale);
         renderer.consumeEvents(events);
-        renderer.updateEffects(dt, sim, true);
+        renderer.updateEffects(dt * titleTempo, sim, true, titleTroopScale);
 
         // Keep title backdrop battle alive if one AI faction conquers the whole continent
         if (sim.troops.length === 0) {
@@ -1081,7 +1087,8 @@ export function useGameController() {
           timeSec,
           phase === 'title',
           dragAimRef.current,
-          sendRatioRef.current
+          sendRatioRef.current,
+          musicSync
         );
         needsStaticRender = false;
       }

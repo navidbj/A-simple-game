@@ -282,6 +282,16 @@ export interface FactionPowerEntry {
   totalMilitary: number;
 }
 
+export interface MusicSyncState {
+  active: boolean;
+  energy: number;
+  bassEnergy: number;
+  beatPhase: number;
+  beatPulse: number;
+  tempoScale: number;
+  troopSpeedScale: number;
+}
+
 export interface HudSnapshot {
   phase: GamePhase;
   outcome: GameOutcome;
