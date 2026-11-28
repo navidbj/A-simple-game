@@ -43,6 +43,7 @@
 
 /* Sculpted weathered ashlar masonry stone outer bezel */
 .hud-stone-frame {
+  contain: layout style;
   background:
     repeating-linear-gradient(
       90deg,
@@ -72,6 +73,7 @@
 
 /* Deeply carved charcoal-slate stone cavity */
 .hud-stone-inset {
+  contain: layout style;
   background:
     repeating-linear-gradient(
       90deg,

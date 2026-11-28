@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { COMMANDER_POWERS } from '../game/constants';
 import type { HudSnapshot, PowerType } from '../game/types';
 import { RichPowerIcon, StoneBrassStud } from './HudOrnaments';
@@ -14,7 +15,7 @@ const POWER_ITEMS: Array<{ type: PowerType; shortLabel: string }> = [
   { type: 'shield', shortLabel: 'سپر' },
 ];
 
-export function CommanderPowersRail({
+export const CommanderPowersRail = memo(function CommanderPowersRail({
   hud,
   compact,
   onTriggerPower,
@@ -170,4 +171,4 @@ export function CommanderPowersRail({
       </div>
     </aside>
   );
-}
+});

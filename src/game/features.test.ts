@@ -455,5 +455,41 @@ test('All 5 buildings upgrade cleanly across Lv.1 -> Lv.2 -> Lv.3 with scaling s
   assert.equal(home.hasPort, false);
 });
 
+test('Ambient ship sea lanes have explicit waypoints and stay strictly in deep dark-blue water', () => {
+  const presets: MapPreset[] = ['continent', 'archipelago', 'strait', 'middle_east'];
+  for (const preset of presets) {
+    const sim = createInitialMatch(24681, 'normal', preset);
+    const { map } = sim;
+    const ships = map.oceanFeatures.filter((f) => f.kind === 'ship_ambient');
+    assert.ok(ships.length >= 1, `${preset} must generate at least one ambient ship`);
+    for (const ship of ships) {
+      assert.ok(
+        Array.isArray(ship.route) && ship.route.length >= 2,
+        `${preset} ship must have an explicit multi-point shipping route`
+      );
+      const route = ship.route!;
+      for (let i = 0; i < route.length - 1; i++) {
+        const a = route[i];
+        const b = route[i + 1];
+        const samples = 12;
+        for (let s = 0; s <= samples; s++) {
+          const u = s / samples;
+          const x = a.x + (b.x - a.x) * u;
+          const y = a.y + (b.y - a.y) * u;
+          const gx = Math.floor(x / map.step);
+          const gy = Math.floor(y / map.step);
+          assert.ok(gx >= 0 && gx < map.cols && gy >= 0 && gy < map.rows, 'Route sample inside map bounds');
+          const idx = gy * map.cols + gx;
+          assert.equal(map.cells[idx], -1, `${preset} ship route crossed land at (${x.toFixed(1)}, ${y.toFixed(1)})`);
+          assert.ok(
+            map.elevation[idx] <= 72,
+            `${preset} ship route entered shallow coastal water (elev=${map.elevation[idx]})`
+          );
+        }
+      }
+    }
+  }
+});
+
 
 

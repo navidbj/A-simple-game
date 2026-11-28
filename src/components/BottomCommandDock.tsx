@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
   BIOMES,
   BUILDINGS,
@@ -37,7 +38,7 @@ const BUILDING_ITEMS: Array<{ type: BuildingType; shortLabel: string }> = [
   { type: 'port', shortLabel: 'بندرگاه' },
 ];
 
-export function BottomCommandDock({
+export const BottomCommandDock = memo(function BottomCommandDock({
   hud,
   compact,
   supplyMode,
@@ -553,4 +554,4 @@ export function BottomCommandDock({
       </div>
     </nav>
   );
-}
+});

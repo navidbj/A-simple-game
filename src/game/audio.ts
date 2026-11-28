@@ -2,6 +2,7 @@ import type { MusicSyncState } from './types';
 
 const MUTE_STORAGE_KEY = 'fath_ghalamro_muted';
 const MUSIC_MUTE_STORAGE_KEY = 'fath_ghalamro_music_muted';
+const VOLUME_STORAGE_KEY = 'fath_ghalamro_volume';
 
 const MUSIC_TRACK_URL = '/assets/audio/arcade-escalation.mp3';
 const TRACK_BPM = 144;
@@ -219,18 +220,37 @@ class SoundEngine {
 
   private muted = false;
   private musicMuted = false;
+  private masterVolume = 1;
+  private lastNonZeroVolume = 1;
   private musicRunning = false;
   private musicPaused = false;
   private musicIntensity: 0 | 1 | 2 = 0;
   private musicGen = 0;
   private stopTimer: number | null = null;
   private syncState: SyncFilterState = createInitialSyncFilterState();
+  private readonly syncOutput: MusicSyncState = {
+    active: false,
+    energy: 0,
+    bassEnergy: 0,
+    beatPhase: 0,
+    beatPulse: 0,
+    tempoScale: 1.0,
+    troopSpeedScale: 1.0,
+  };
 
   constructor() {
     try {
       if (typeof window !== 'undefined') {
         this.muted = window.localStorage.getItem(MUTE_STORAGE_KEY) === '1';
         this.musicMuted = window.localStorage.getItem(MUSIC_MUTE_STORAGE_KEY) === '1';
+        const rawVol = window.localStorage.getItem(VOLUME_STORAGE_KEY);
+        const parsedVol = Number(rawVol);
+        if (rawVol !== null && !Number.isNaN(parsedVol)) {
+          this.masterVolume = Math.max(0, Math.min(1, parsedVol));
+          if (this.masterVolume > 0.001) {
+            this.lastNonZeroVolume = this.masterVolume;
+          }
+        }
       }
     } catch {
       // Ignore storage errors in restricted contexts
@@ -245,10 +265,57 @@ class SoundEngine {
     return this.musicMuted;
   }
 
+  public getMasterVolume(): number {
+    return this.masterVolume;
+  }
+
+  public setMasterVolume(volume: number) {
+    const clamped = Math.max(0, Math.min(1, volume));
+    this.masterVolume = clamped;
+    if (clamped > 0.001) {
+      this.lastNonZeroVolume = clamped;
+    }
+    this.muted = clamped <= 0.001;
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setTargetAtTime(
+        this.muted ? 0 : this.masterVolume,
+        this.ctx.currentTime,
+        0.03
+      );
+    }
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped));
+        window.localStorage.setItem(MUTE_STORAGE_KEY, this.muted ? '1' : '0');
+      }
+    } catch {
+      // Ignore storage errors
+    }
+    if (this.muted) {
+      this.setMuted(true);
+    } else if (this.musicRunning && !this.musicMuted) {
+      this.setMuted(false);
+    }
+  }
+
   public setMuted(muted: boolean) {
     this.muted = muted;
+    if (!muted && this.masterVolume <= 0.001) {
+      this.masterVolume = this.lastNonZeroVolume > 0.001 ? this.lastNonZeroVolume : 1;
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(VOLUME_STORAGE_KEY, String(this.masterVolume));
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    }
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : 1, this.ctx.currentTime, 0.03);
+      this.masterGain.gain.setTargetAtTime(
+        muted ? 0 : this.masterVolume,
+        this.ctx.currentTime,
+        0.03
+      );
     }
     try {
       if (typeof window !== 'undefined') {
@@ -403,15 +470,14 @@ class SoundEngine {
       ) {
         return NEUTRAL_SYNC;
       }
-      return {
-        active: false,
-        energy: s.smoothedEnergy,
-        bassEnergy: s.smoothedBass,
-        beatPhase: 0,
-        beatPulse: 0,
-        tempoScale: s.smoothedTempoScale,
-        troopSpeedScale: s.smoothedTroopScale,
-      };
+      this.syncOutput.active = false;
+      this.syncOutput.energy = s.smoothedEnergy;
+      this.syncOutput.bassEnergy = s.smoothedBass;
+      this.syncOutput.beatPhase = 0;
+      this.syncOutput.beatPulse = 0;
+      this.syncOutput.tempoScale = s.smoothedTempoScale;
+      this.syncOutput.troopSpeedScale = s.smoothedTroopScale;
+      return this.syncOutput;
     }
 
     this.musicAnalyser.getFloatTimeDomainData(this.timeData);
@@ -544,7 +610,7 @@ class SoundEngine {
       try {
         this.ctx = new AudioCtx();
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = this.muted ? 0 : 1;
+        this.masterGain.gain.value = this.muted ? 0 : this.masterVolume;
         this.masterGain.connect(this.ctx.destination);
       } catch {
         return null;

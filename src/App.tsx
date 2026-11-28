@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { BattleLogPanel } from './components/BattleLogPanel';
 import { BottomCommandDock } from './components/BottomCommandDock';
 import { CommanderPowersRail } from './components/CommanderPowersRail';
@@ -14,6 +15,10 @@ export default function App() {
   const viewport = useViewportMode();
   const game = useGameController();
   const showRotatePrompt = viewport.isPortraitPhone && !game.portraitDismissed;
+  const { setShortcutsOpen, setPortraitDismissed } = game;
+  const handleOpenShortcuts = useCallback(() => setShortcutsOpen(true), [setShortcutsOpen]);
+  const handleCloseShortcuts = useCallback(() => setShortcutsOpen(false), [setShortcutsOpen]);
+  const handleDismissPortrait = useCallback(() => setPortraitDismissed(true), [setPortraitDismissed]);
 
   return (
     <div className="relative w-screen h-dvh overflow-hidden flex flex-col bg-[#0a1a30] text-[#ede7d9] select-none">
@@ -44,13 +49,19 @@ export default function App() {
           compact={viewport.isCompact}
           muted={game.muted}
           musicMuted={game.musicMuted}
+          masterVolume={game.masterVolume}
+          zoomLevel={game.zoomLevel}
           battleLogOpen={game.battleLogOpen}
           gameSpeed={game.gameSpeed}
           onCycleSpeed={game.handleCycleSpeed}
-          onOpenShortcuts={() => game.setShortcutsOpen(true)}
+          onOpenShortcuts={handleOpenShortcuts}
           onNewMap={game.handleNewMapInGame}
           onToggleMusic={game.handleToggleMusic}
           onToggleMute={game.handleToggleMute}
+          onChangeVolume={game.handleChangeVolume}
+          onZoomIn={game.handleZoomIn}
+          onZoomOut={game.handleZoomOut}
+          onResetZoom={game.handleResetZoom}
           onTogglePause={game.handleTogglePause}
           onToggleBattleLog={game.handleToggleBattleLog}
         />
@@ -147,13 +158,13 @@ export default function App() {
 
       {/* Portrait Mobile Orientation Prompt */}
       {showRotatePrompt && (
-        <RotatePhoneOverlay onContinuePortrait={() => game.setPortraitDismissed(true)} />
+        <RotatePhoneOverlay onContinuePortrait={handleDismissPortrait} />
       )}
 
       {/* Keyboard & Gesture Shortcuts Guide Modal */}
       <ShortcutsModal
         open={game.shortcutsOpen}
-        onClose={() => game.setShortcutsOpen(false)}
+        onClose={handleCloseShortcuts}
       />
 
       {/* Pause / Victory / Defeat Modal */}

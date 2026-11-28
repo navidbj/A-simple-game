@@ -28,7 +28,6 @@ import type {
   Difficulty,
   DragAimState,
   GamePhase,
-  GameSimulation,
   HudSnapshot,
   MapGridData,
   MapPreset,
@@ -74,17 +73,19 @@ function getInitialSeed(): number {
   return Number.isFinite(s) && s > 0 ? Math.floor(s) : makeRandomSeed();
 }
 
+const IDLE_DRAG_AIM: DragAimState = {
+  active: false,
+  originId: -1,
+  currentX: 0,
+  currentY: 0,
+  hoverTargetId: null,
+  isValidTarget: false,
+  isFriendlyTarget: false,
+  isNavalTarget: false,
+};
+
 function createIdleDragAim(): DragAimState {
-  return {
-    active: false,
-    originId: -1,
-    currentX: 0,
-    currentY: 0,
-    hoverTargetId: null,
-    isValidTarget: false,
-    isFriendlyTarget: false,
-    isNavalTarget: false,
-  };
+  return { ...IDLE_DRAG_AIM };
 }
 
 export interface TimelapseData {
@@ -93,27 +94,36 @@ export interface TimelapseData {
   snapshots: TimelapseSnapshot[];
 }
 
+const UNINITIALIZED = Symbol('uninitialized');
+
+function useLazyRef<T>(init: () => T): React.MutableRefObject<T> {
+  const ref = useRef<T | typeof UNINITIALIZED>(UNINITIALIZED);
+  if (ref.current === UNINITIALIZED) {
+    ref.current = init();
+  }
+  return ref as React.MutableRefObject<T>;
+}
+
 export function useGameController() {
-  const autoStart = getInitialAutoStart();
+  const autoStartRef = useLazyRef(() => getInitialAutoStart());
   const initialDifficulty: Difficulty = 'normal';
   const initialPreset: MapPreset = 'continent';
-  const initialSeed = getInitialSeed();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<GameRenderer | null>(null);
-  const simRef = useRef<GameSimulation>(
-    createInitialMatch(initialSeed, initialDifficulty, initialPreset)
+  const simRef = useLazyRef(() =>
+    createInitialMatch(getInitialSeed(), initialDifficulty, initialPreset)
   );
-  const phaseRef = useRef<GamePhase>(autoStart ? 'playing' : 'title');
+  const phaseRef = useRef<GamePhase>(autoStartRef.current ? 'playing' : 'title');
   const difficultyRef = useRef<Difficulty>(initialDifficulty);
   const presetRef = useRef<MapPreset>(initialPreset);
   const sendRatioRef = useRef<number>(0.5);
   const speedRef = useRef<GameSpeed>(1);
-  const selectedIdRef = useRef<number | null>(
-    simRef.current.territories.find((t) => t.owner === 0)?.id ?? null
+  const selectedIdRef = useLazyRef<number | null>(
+    () => simRef.current.territories.find((t) => t.owner === 0)?.id ?? null
   );
   const hoveredIdRef = useRef<number | null>(null);
-  const dragAimRef = useRef<DragAimState>(createIdleDragAim());
+  const dragAimRef = useRef<DragAimState>(IDLE_DRAG_AIM);
   const pointerSessionRef = useRef<PointerSession | null>(null);
   const lastTapRef = useRef<LastTapInfo | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
@@ -123,6 +133,8 @@ export function useGameController() {
 
   const [muted, setMuted] = useState(() => soundEngine.isMuted());
   const [musicMuted, setMusicMuted] = useState(() => soundEngine.isMusicMuted());
+  const [masterVolume, setMasterVolume] = useState(() => soundEngine.getMasterVolume());
+  const [zoomLevel, setZoomLevel] = useState(1);
   const [gameSpeed, setGameSpeed] = useState<GameSpeed>(1);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [battleLogOpen, setBattleLogOpen] = useState(false);
@@ -198,7 +210,7 @@ export function useGameController() {
         soundEngine.playDefeat();
       } else if (ev.type === 'capture') {
         soundEngine.playCapture(Boolean(ev.capturedByPlayer));
-      } else if (ev.type === 'tower_block') {
+      } else if (ev.type === 'tower_block' && ev.owner === 0) {
         soundEngine.playTowerBlock();
       } else if (ev.type === 'clash' && !playedClash) {
         soundEngine.playClash();
@@ -218,6 +230,11 @@ export function useGameController() {
       presetRef.current = nextPreset;
       simRef.current = createInitialMatch(nextSeed, difficultyRef.current, nextPreset);
       rendererRef.current?.clearEffects();
+      rendererRef.current?.resetCamera();
+      if (canvasRef.current && rendererRef.current) {
+        rendererRef.current.syncViewportFromRect(canvasRef.current);
+      }
+      setZoomLevel(1);
       selectedIdRef.current =
         simRef.current.territories.find((t) => t.owner === 0)?.id ?? null;
       clearPointerInteraction();
@@ -305,6 +322,7 @@ export function useGameController() {
   const handleToggleMute = useCallback(() => {
     const next = soundEngine.toggleMute();
     setMuted(next);
+    setMasterVolume(soundEngine.getMasterVolume());
   }, []);
 
   const handleToggleMusic = useCallback(() => {
@@ -591,6 +609,61 @@ export function useGameController() {
     [syncHud]
   );
 
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStateRef = useRef<{ dist: number; midX: number; midY: number } | null>(null);
+  const panStateRef = useRef<{
+    pointerId: number;
+    lastX: number;
+    lastY: number;
+    hasPanned: boolean;
+  } | null>(null);
+
+  const handleChangeVolume = useCallback((vol: number) => {
+    soundEngine.setMasterVolume(vol);
+    setMasterVolume(soundEngine.getMasterVolume());
+    setMuted(soundEngine.isMuted());
+  }, []);
+
+  const applyCameraZoom = useCallback(
+    (nextZoom: number, clientX?: number, clientY?: number) => {
+      const renderer = rendererRef.current;
+      const canvas = canvasRef.current;
+      if (!renderer || !canvas) return;
+      const applied = renderer.setCameraZoom(nextZoom, clientX, clientY, canvas);
+      renderer.syncViewportFromRect(canvas);
+      setZoomLevel(Number(applied.toFixed(2)));
+    },
+    []
+  );
+
+  const handleZoomIn = useCallback(() => {
+    const renderer = rendererRef.current;
+    const canvas = canvasRef.current;
+    if (!renderer || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    applyCameraZoom(
+      renderer.getCameraZoom() + 0.45,
+      rect.left + rect.width * 0.5,
+      rect.top + rect.height * 0.5
+    );
+  }, [applyCameraZoom]);
+
+  const handleZoomOut = useCallback(() => {
+    const renderer = rendererRef.current;
+    const canvas = canvasRef.current;
+    if (!renderer || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    applyCameraZoom(
+      renderer.getCameraZoom() - 0.45,
+      rect.left + rect.width * 0.5,
+      rect.top + rect.height * 0.5
+    );
+  }, [applyCameraZoom]);
+
+  const handleResetZoom = useCallback(() => {
+    applyCameraZoom(1);
+  }, [applyCameraZoom]);
+
   const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (phaseRef.current !== 'playing') return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -599,10 +672,39 @@ export function useGameController() {
     const renderer = rendererRef.current;
     if (!canvas || !renderer) return;
 
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePointersRef.current.size === 2) {
+      pointerSessionRef.current = null;
+      panStateRef.current = null;
+      dragAimRef.current = createIdleDragAim();
+      const pts = Array.from(activePointersRef.current.values());
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      pinchStateRef.current = {
+        dist: Math.max(1, dist),
+        midX: (pts[0].x + pts[1].x) * 0.5,
+        midY: (pts[0].y + pts[1].y) * 0.5,
+      };
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore
+      }
+      return;
+    }
+
     const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
     const hitRadius = isTouch ? 48 : 34;
     const { x, y } = renderer.screenToWorld(canvas, e.clientX, e.clientY);
     const hit = getTerritoryAtPoint(simRef.current, x, y, hitRadius);
+
+    if ((!hit || hit.owner !== 0) && renderer.getCameraZoom() > 1) {
+      panStateRef.current = {
+        pointerId: e.pointerId,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        hasPanned: false,
+      };
+    }
 
     pointerSessionRef.current = {
       pointerId: e.pointerId,
@@ -629,6 +731,45 @@ export function useGameController() {
       const canvas = canvasRef.current;
       const renderer = rendererRef.current;
       if (!canvas || !renderer) return;
+
+      if (activePointersRef.current.has(e.pointerId)) {
+        activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+      if (activePointersRef.current.size === 2 && pinchStateRef.current) {
+        const pts = Array.from(activePointersRef.current.values());
+        const dist = Math.max(1, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
+        const midX = (pts[0].x + pts[1].x) * 0.5;
+        const midY = (pts[0].y + pts[1].y) * 0.5;
+        const scaleRatio = dist / pinchStateRef.current.dist;
+        const nextZoom = renderer.getCameraZoom() * scaleRatio;
+        renderer.setCameraZoom(nextZoom, midX, midY, canvas);
+        renderer.panCameraBy(midX - pinchStateRef.current.midX, midY - pinchStateRef.current.midY);
+        renderer.syncViewportFromRect(canvas);
+        setZoomLevel(Number(renderer.getCameraZoom().toFixed(2)));
+        pinchStateRef.current = { dist, midX, midY };
+        return;
+      }
+
+      if (panStateRef.current && panStateRef.current.pointerId === e.pointerId) {
+        const dx = e.clientX - panStateRef.current.lastX;
+        const dy = e.clientY - panStateRef.current.lastY;
+        const session = pointerSessionRef.current;
+        if (
+          !panStateRef.current.hasPanned &&
+          session &&
+          session.pointerId === e.pointerId &&
+          Math.hypot(e.clientX - session.startClientX, e.clientY - session.startClientY) >=
+            DRAG_THRESHOLD_PX
+        ) {
+          panStateRef.current.hasPanned = true;
+        }
+        if (Math.hypot(dx, dy) > 2) {
+          renderer.panCameraBy(dx, dy);
+          renderer.syncViewportFromRect(canvas);
+          panStateRef.current.lastX = e.clientX;
+          panStateRef.current.lastY = e.clientY;
+        }
+      }
 
       const session = pointerSessionRef.current;
       const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
@@ -684,6 +825,16 @@ export function useGameController() {
 
   const handleCanvasPointerUp = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      activePointersRef.current.delete(e.pointerId);
+      if (activePointersRef.current.size < 2) {
+        pinchStateRef.current = null;
+      }
+      let pannedThisPointer = false;
+      if (panStateRef.current && panStateRef.current.pointerId === e.pointerId) {
+        pannedThisPointer = panStateRef.current.hasPanned;
+        panStateRef.current = null;
+      }
+
       const session = pointerSessionRef.current;
       const canvas = canvasRef.current;
       const renderer = rendererRef.current;
@@ -700,6 +851,11 @@ export function useGameController() {
 
       if (!session || session.pointerId !== e.pointerId) return;
       pointerSessionRef.current = null;
+
+      if (pannedThisPointer) {
+        dragAimRef.current = createIdleDragAim();
+        return;
+      }
 
       if (phaseRef.current !== 'playing' || !canvas || !renderer) {
         dragAimRef.current = createIdleDragAim();
@@ -816,6 +972,9 @@ export function useGameController() {
   );
 
   const handleCanvasPointerCancel = useCallback(() => {
+    activePointersRef.current.clear();
+    pinchStateRef.current = null;
+    panStateRef.current = null;
     clearPointerInteraction(false);
   }, [clearPointerInteraction]);
 
@@ -1173,5 +1332,11 @@ export function useGameController() {
     handleCanvasPointerLeave,
     handleCanvasContextMenu,
     handleCanvasWheel,
+    zoomLevel,
+    handleZoomIn,
+    handleZoomOut,
+    handleResetZoom,
+    masterVolume,
+    handleChangeVolume,
   };
 }

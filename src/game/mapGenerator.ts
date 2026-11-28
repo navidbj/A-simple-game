@@ -892,26 +892,167 @@ export function generateOrganicMap(
     rockCount++;
   }
 
-  // 7c. Tiny Drifting Neutral Merchant Sailboats in Deep Ocean Lanes
-  let shipCount = 0;
-  for (let attempt = 0; attempt < 200 && shipCount < 3; attempt++) {
-    const gx = 14 + Math.floor(artRng() * (cols - 28));
-    const gy = 12 + Math.floor(artRng() * (rows - 24));
-    const idx = gy * cols + gx;
-    if (cells[idx] !== -1) continue;
-    if (elevation[idx] > 50) continue;
+  // 7c. Deep-Water Merchant Shipping Lanes (strictly in dark-blue deep water, never crossing land)
+  const isDeepWaterCell = (gx: number, gy: number, maxElev = 62): boolean => {
+    if (gx < 5 || gy < 5 || gx >= cols - 5 || gy >= rows - 5) return false;
     const px = gx * step;
     const py = gy * step;
-    if (px < 140 && py > height - 135) continue;
-    if (isNearBridge(px, py)) continue;
-    if (oceanFeatures.some((f) => Math.hypot(f.x - px, f.y - py) < 95)) continue;
+    if (px < 140 && py > height - 135) return false;
+    if (isNearBridge(px, py)) return false;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const idx = (gy + dy) * cols + (gx + dx);
+        if (cells[idx] !== -1 || elevation[idx] > maxElev + 6) return false;
+      }
+    }
+    return elevation[gy * cols + gx] <= maxElev;
+  };
+
+  const isDeepSegmentClear = (ax: number, ay: number, bx: number, by: number): boolean => {
+    const dist = Math.hypot(bx - ax, by - ay);
+    const steps = Math.max(4, Math.ceil(dist / 6));
+    for (let s = 0; s <= steps; s++) {
+      const u = s / steps;
+      const gx = Math.floor((ax + (bx - ax) * u) / step);
+      const gy = Math.floor((ay + (by - ay) * u) / step);
+      if (gx < 0 || gy < 0 || gx >= cols || gy >= rows) return false;
+      const idx = gy * cols + gx;
+      if (cells[idx] !== -1 || elevation[idx] > 70) return false;
+    }
+    return true;
+  };
+
+  const coarseStep = 4;
+  const cCols = Math.floor(cols / coarseStep);
+  const cRows = Math.floor(rows / coarseStep);
+  const deepWalkable = new Uint8Array(cCols * cRows);
+  const deepAnchors: Array<{ cx: number; cy: number; px: number; py: number }> = [];
+
+  for (let cy = 1; cy < cRows - 1; cy++) {
+    for (let cx = 1; cx < cCols - 1; cx++) {
+      const gx = cx * coarseStep;
+      const gy = cy * coarseStep;
+      if (isDeepWaterCell(gx, gy, 62)) {
+        deepWalkable[cy * cCols + cx] = 1;
+        if (
+          deepAnchors.every((a) => Math.hypot(a.px - gx * step, a.py - gy * step) >= 95) &&
+          oceanFeatures.every((f) => Math.hypot(f.x - gx * step, f.y - gy * step) >= 36)
+        ) {
+          deepAnchors.push({ cx, cy, px: gx * step, py: gy * step });
+        }
+      }
+    }
+  }
+
+  const findDeepSeaRoute = (
+    start: { cx: number; cy: number },
+    goal: { cx: number; cy: number }
+  ): Array<{ x: number; y: number }> | null => {
+    const total = cCols * cRows;
+    const parent = new Int32Array(total).fill(-1);
+    const visited = new Uint8Array(total);
+    const queue = new Int32Array(total);
+    const startIdx = start.cy * cCols + start.cx;
+    const goalIdx = goal.cy * cCols + goal.cx;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = startIdx;
+    visited[startIdx] = 1;
+
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ];
+    let found = false;
+    while (head < tail) {
+      const cur = queue[head++];
+      if (cur === goalIdx) {
+        found = true;
+        break;
+      }
+      const cx = cur % cCols;
+      const cy = (cur - cx) / cCols;
+      for (let d = 0; d < dirs.length; d++) {
+        const nx = cx + dirs[d][0];
+        const ny = cy + dirs[d][1];
+        if (nx <= 0 || ny <= 0 || nx >= cCols - 1 || ny >= cRows - 1) continue;
+        const nIdx = ny * cCols + nx;
+        if (visited[nIdx] || !deepWalkable[nIdx]) continue;
+        // Prevent diagonal corner-cutting across shallow/land cells
+        if (dirs[d][0] !== 0 && dirs[d][1] !== 0) {
+          if (!deepWalkable[cy * cCols + nx] || !deepWalkable[ny * cCols + cx]) continue;
+        }
+        visited[nIdx] = 1;
+        parent[nIdx] = cur;
+        queue[tail++] = nIdx;
+      }
+    }
+    if (!found) return null;
+
+    const raw: Array<{ x: number; y: number }> = [];
+    for (let cur = goalIdx; cur !== -1; cur = parent[cur]) {
+      const cx = cur % cCols;
+      const cy = (cur - cx) / cCols;
+      raw.push({ x: cx * coarseStep * step, y: cy * coarseStep * step });
+    }
+    raw.reverse();
+    if (raw.length < 2) return null;
+
+    // Greedy line-of-sight simplification strictly preserving deep-water clearance
+    const simplified: Array<{ x: number; y: number }> = [raw[0]];
+    let anchor = 0;
+    while (anchor < raw.length - 1) {
+      let next = raw.length - 1;
+      while (
+        next > anchor + 1 &&
+        !isDeepSegmentClear(raw[anchor].x, raw[anchor].y, raw[next].x, raw[next].y)
+      ) {
+        next--;
+      }
+      simplified.push(raw[next]);
+      anchor = next;
+    }
+    return simplified.length >= 2 ? simplified : null;
+  };
+
+  let shipCount = 0;
+  const usedAnchorPairs = new Set<number>();
+  for (let i = 0; i < deepAnchors.length && shipCount < 3; i++) {
+    const aIdx = Math.floor(artRng() * deepAnchors.length);
+    if (usedAnchorPairs.has(aIdx)) continue;
+    const a = deepAnchors[aIdx];
+    let bestBIdx = -1;
+    let bestScore = -Infinity;
+    for (let j = 0; j < deepAnchors.length; j++) {
+      if (j === aIdx || usedAnchorPairs.has(j)) continue;
+      const b = deepAnchors[j];
+      const dist = Math.hypot(b.px - a.px, b.py - a.py);
+      if (dist < 140 || dist > 520) continue;
+      const score = dist - Math.abs(dist - 280) * 0.4;
+      if (score > bestScore) {
+        bestScore = score;
+        bestBIdx = j;
+      }
+    }
+    if (bestBIdx === -1) continue;
+    const route = findDeepSeaRoute(a, deepAnchors[bestBIdx]);
+    if (!route) continue;
+    usedAnchorPairs.add(aIdx);
+    usedAnchorPairs.add(bestBIdx);
     oceanFeatures.push({
       kind: 'ship_ambient',
-      x: px,
-      y: py,
+      x: route[0].x,
+      y: route[0].y,
       phase: artRng() * Math.PI * 2,
       scale: 1.0,
-      dir: artRng() > 0.5 ? 1 : -1,
+      dir: route[route.length - 1].x >= route[0].x ? 1 : -1,
+      route,
     });
     shipCount++;
   }

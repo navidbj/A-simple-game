@@ -388,8 +388,8 @@ export function computeNavalRoute(
   const clampY = (v: number) => Math.max(18, Math.min(map.height - 18, v));
 
   const scoreWater = (cx: number, cy: number): number => {
-    let waterSamples = 0;
-    const samples = 9;
+    let score = 0;
+    const samples = 18;
     for (let i = 1; i < samples; i++) {
       const t = i / samples;
       const mt = 1 - t;
@@ -397,10 +397,20 @@ export function computeNavalRoute(
       const py = mt * mt * start.y + 2 * mt * t * cy + t * t * end.y;
       const gx = Math.floor(px / map.step);
       const gy = Math.floor(py / map.step);
-      if (gx < 0 || gy < 0 || gx >= map.cols || gy >= map.rows) continue;
-      if (map.cells[gy * map.cols + gx] === -1) waterSamples++;
+      if (gx < 0 || gy < 0 || gx >= map.cols || gy >= map.rows) {
+        score -= 500;
+        continue;
+      }
+      const idx = gy * map.cols + gx;
+      if (map.cells[idx] !== -1) {
+        score -= 1000;
+      } else if (map.elevation[idx] <= 72) {
+        score += 3;
+      } else {
+        score += 1;
+      }
     }
-    return waterSamples;
+    return score;
   };
 
   let bestX = clampX(mx);
@@ -769,7 +779,6 @@ function resolveTroopArrival(
 
 export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = false) {
   const diff = DIFFICULTIES[sim.difficulty];
-  const playerCount = sim.territories.filter((t) => t.owner === 0).length;
   const rng = createRng(
     (sim.seed ^ Math.floor(sim.stats.elapsedSeconds * 1000) ^ sim.nextTroopId) >>> 0
   );
@@ -854,6 +863,18 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
         continue;
       }
 
+      const portCost = t.isCoastal ? getNextBuildingCost(t, 'port') : null;
+      const portLvl = getBuildingLevel(t, 'port');
+      if (
+        t.isCoastal &&
+        portCost !== null &&
+        t.military >= portCost + (isFrontline ? 14 : 6) + portLvl * 6 &&
+        (!isFrontline || personality === 'expander' || personality === 'balanced')
+      ) {
+        buildStructure(sim, t.id, 'port', t.owner, events);
+        continue;
+      }
+
       const towerCost = getNextBuildingCost(t, 'tower');
       const towerLvl = getBuildingLevel(t, 'tower');
       if (
@@ -863,7 +884,11 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
         t.military >= towerCost + 10 + towerLvl * 6 &&
         (personality === 'fortifier' ||
           t.biome === 'mountain' ||
-          enemyNeighbors.some((e) => e.owner === 0))
+          enemyNeighbors.some(
+            (e) =>
+              e.owner >= 0 &&
+              ((counts.get(e.owner) ?? 0) >= 3 || e.military >= t.military * 0.9)
+          ))
       ) {
         buildStructure(sim, t.id, 'tower', t.owner, events);
         continue;
@@ -917,7 +942,8 @@ export function evaluateAI(sim: GameSimulation, events: SimEvent[], demoMode = f
 
         let score = advantage * 40 - effectiveDefense * 0.6;
         if (n.owner === -1) score += personality === 'expander' ? 28 : 14;
-        if (!demoMode && n.owner === 0 && playerCount >= diff.playerThreatThreshold) {
+        const targetEmpireSize = n.owner >= 0 ? (counts.get(n.owner) ?? 0) : 0;
+        if (!demoMode && targetEmpireSize >= diff.playerThreatThreshold) {
           score += 32;
         }
         if (personality === 'opportunist' && n.owner >= 0 && (counts.get(n.owner) ?? 0) <= 2) {
@@ -977,6 +1003,7 @@ export function computeFactionPowers(sim: GameSimulation): FactionPowerEntry[] {
 
 export interface AttackPreview {
   sendAmount: number;
+  rawAttackPower: number;
   isFriendly: boolean;
   isNaval: boolean;
   effectiveAttack: number;
@@ -1007,6 +1034,7 @@ export function previewAttackOutcome(
   if (from.owner === to.owner) {
     return {
       sendAmount,
+      rawAttackPower: sendAmount,
       isFriendly: true,
       isNaval: check.isNaval,
       effectiveAttack: sendAmount,
@@ -1020,13 +1048,15 @@ export function previewAttackOutcome(
   const attackMult =
     ECONOMY.FORGE_ATTACK_MULTIPLIERS[getBuildingLevel(from, 'forge')] *
     (check.isNaval ? ECONOMY.PORT_NAVAL_ATTACK_MULTIPLIERS[getBuildingLevel(from, 'port')] : 1.0);
+  const rawAttackPower = sendAmount * attackMult;
   const defenseMult = getEffectiveDefenseMultiplier(to);
-  const effectiveAttack = sendAmount * attackMult * defenseMult;
+  const effectiveAttack = rawAttackPower * defenseMult;
   const defenderMilitary = to.military;
   const defenseBonusPct = Math.round((1 - defenseMult) * 100);
 
   return {
     sendAmount,
+    rawAttackPower,
     isFriendly: false,
     isNaval: check.isNaval,
     effectiveAttack,

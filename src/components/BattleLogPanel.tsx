@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { BattleLogEntry } from '../game/types';
 import { LogScrollIcon } from './GameIcons';
 
@@ -8,7 +9,7 @@ interface BattleLogPanelProps {
   onToggle: () => void;
 }
 
-export function BattleLogPanel({ entries, open, compact, onToggle }: BattleLogPanelProps) {
+export const BattleLogPanel = memo(function BattleLogPanel({ entries, open, compact, onToggle }: BattleLogPanelProps) {
   const posClass = compact ? 'bottom-2 left-2' : 'bottom-2.5 left-3 xl:left-16';
 
   if (!open) {
@@ -103,4 +104,4 @@ export function BattleLogPanel({ entries, open, compact, onToggle }: BattleLogPa
       </div>
     </section>
   );
-}
+});

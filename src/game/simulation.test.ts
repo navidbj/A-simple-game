@@ -372,3 +372,75 @@ test('troopSpeedScale accelerates marching troops independently of economy and c
   );
 });
 
+test('Combat Forge/Tower symmetry and fair AI leader/tower targeting treat player and AI equally', () => {
+  // 1. Forge + Tower combat math is 100% symmetric between Player (0) and AI (1)
+  const runMatchup = (attackerOwner: 0 | 1, defenderOwner: 0 | 1) => {
+    const sim = createInitialMatch(999, 'normal');
+    const atk = sim.territories[0];
+    const def = sim.territories[atk.neighbors[0]];
+    atk.owner = attackerOwner;
+    def.owner = defenderOwner;
+    def.biome = 'plain';
+    atk.military = 100;
+    def.military = 100;
+    buildStructure(sim, atk.id, 'forge', attackerOwner);
+    buildStructure(sim, def.id, 'tower', defenderOwner);
+    const atkBefore = atk.military;
+    dispatchTroops(sim, atk.id, def.id, 0.5, attackerOwner);
+    for (let i = 0; i < 120 && sim.troops.length > 0; i++) {
+      stepSimulation(sim, 0.05, false);
+    }
+    return { atkAfter: atk.military, defAfter: def.military, defOwner: def.owner, atkBefore };
+  };
+
+  const pVsAi = runMatchup(0, 1);
+  const aiVsP = runMatchup(1, 0);
+  assert.equal(pVsAi.defOwner, 1);
+  assert.equal(aiVsP.defOwner, 0);
+  assert.ok(Math.abs(pVsAi.defAfter - aiVsP.defAfter) < 1e-6, 'Forge vs Tower outcome must be identical for Player and AI');
+
+  // 2. AI leader threat containment applies symmetrically when AI faction 2 leads (not only when player leads)
+  const simFair = createInitialMatch(1234, 'normal');
+  for (const t of simFair.territories) {
+    t.owner = -1;
+    t.military = 80;
+  }
+  const attacker = simFair.territories[0];
+  attacker.owner = 1;
+  attacker.military = 70;
+  attacker.buildingLevels = { barracks: 3, tower: 3, mine: 3, forge: 3, port: 3 };
+  const nPlayer = simFair.territories[attacker.neighbors[0]];
+  const nLeaderAi = simFair.territories[attacker.neighbors[1]];
+  nPlayer.owner = 0;
+  nPlayer.biome = 'plain';
+  nPlayer.military = 16;
+  nLeaderAi.owner = 2;
+  nLeaderAi.biome = 'plain';
+  nLeaderAi.military = 16;
+
+  // Give AI faction 2 >= 6 territories (leading), while player only has 1
+  let given = 1;
+  for (const t of simFair.territories) {
+    if (
+      t.id !== attacker.id &&
+      t.id !== nPlayer.id &&
+      t.id !== nLeaderAi.id &&
+      !attacker.neighbors.includes(t.id) &&
+      given < 6
+    ) {
+      t.owner = 2;
+      given++;
+    }
+  }
+
+  const events: SimEvent[] = [];
+  evaluateAI(simFair, events, false);
+  const dispatched = simFair.troops.find((tr) => tr.fromId === attacker.id);
+  assert.ok(dispatched !== undefined, 'AI attacker should dispatch against a vulnerable neighbor');
+  assert.equal(
+    dispatched!.toId,
+    nLeaderAi.id,
+    'AI should prioritize containing the leading AI faction (6 castles) over a 1-castle human player'
+  );
+});
+

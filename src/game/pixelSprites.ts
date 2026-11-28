@@ -32,6 +32,18 @@ function bakeSprite(rows: string[], palette: PaletteMap): HTMLCanvasElement {
   return c;
 }
 
+function bakeFlippedSprite(src: HTMLCanvasElement): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = src.height;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.translate(src.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(src, 0, 0);
+  return c;
+}
+
 // 1. Detailed 24x22 16-bit Pixel-Art Castle Fortress Sprite
 const CASTLE_GRID = [
   '...........K............',
@@ -39,27 +51,27 @@ const CASTLE_GRID = [
   '..........KRRR..........',
   '..........KRR...........',
   '..........K.............',
-  '.........KMK............',
+  '.........KAK............',
   '........KMRMK...........',
   '.......KMRRRMK..........',
   '..K...KMMMMMMMK...K.....',
-  '.KMK..KLLLLLLLK..KMK....',
+  '.KAK..KLLLLLLLK..KAK....',
   'KMRMK.KLSSKSSLK.KMRMK...',
   'KSSSKKKSSSSSSSKKKSSSK...',
   'KSDSKSKSDSSSDSKSKSDSK...',
   'KSSSKLKKKKKKKKKLKSSSK...',
   'KSSSKSSKSSSKSSKSKSSSK...',
-  'KSDSKSSKGGGKSSKSKSDSK...',
-  'KSSSKSSKGDGKSSKSKSSSK...',
-  'KSSSKSSKGDGKSSKSKSSSK...',
-  'KSSSKSSKGDGKSSKSKSSSK...',
+  'KSDSKSSKAAAKSSKSKSDSK...',
+  'KSSSKSSKAGAKSSKSKSSSK...',
+  'KSSSKSSKGBGKSSKSKSSSK...',
+  'KSSSKSSKGBGKSSKSKSSSK...',
   'KDDDKDDKGGGKDDKDKDDDK...',
   'KKKKKKKKKKKKKKKKKKKKK...',
   '........................',
 ];
 
 const CASTLE_GRID_FLASH = CASTLE_GRID.map((r) =>
-  r.replace(/[SLDMG]/g, 'W')
+  r.replace(/[SLDMGAB]/g, 'W')
 );
 
 // 1b. Compact 18x18 Outpost Keep (for small/neutral garrisons)
@@ -71,13 +83,13 @@ const CASTLE_SMALL_GRID = [
   '......KMK.........',
   '.....KMRMK........',
   '....KMMMMMK.......',
-  '...KLLLLLLLK......',
-  '...KLSSKSSLK......',
+  '...KBBBBBBBK......',
+  '...KBSSKSSBK......',
   '..KKSSSSSSSKK.....',
   '..KSDSSSDSKSK.....',
-  '..KSSKGGGKSSK.....',
-  '..KSSKGDGKSSK.....',
-  '..KSSKGDGKSSK.....',
+  '..KSSKBBBKSSK.....',
+  '..KSSKBDGKSSK.....',
+  '..KSSKBDGKSSK.....',
   '..KDDKGGGKDDK.....',
   '..KKKKKKKKKKK.....',
   '..................',
@@ -85,7 +97,7 @@ const CASTLE_SMALL_GRID = [
 ];
 
 const CASTLE_SMALL_FLASH = CASTLE_SMALL_GRID.map((r) =>
-  r.replace(/[SLDMG]/g, 'W')
+  r.replace(/[SLDMGB]/g, 'W')
 );
 
 // 1c. Majestic 26x25 Grand Imperial Citadel (for powerful fortified strongholds)
@@ -96,29 +108,29 @@ const CASTLE_GRAND_GRID = [
   '...........KRR............',
   '...........K..............',
   '..........KAK.............',
-  '....K....KAMAK....K.......',
+  '....K....KAYAK....K.......',
   '...KRR..KAMRMAK..KRR......',
   '...K...KAMRRRMAK...K......',
   '..KAK.KAAAAAAAAAK.KAK.....',
-  '.KMRMK.KLLLLLLLK.KMRMK....',
-  'KMRRRMKKLSSKSSLKKMRRRMK...',
-  'KSSSSSKKSSSSSSSKKSSSSSK...',
-  'KSDSKSKSDSSASDSKSKSDSKK...',
+  '.KMRMK.KIIIIIIIK.KMRMK....',
+  'KMRRRMKKILLKLLIKKMRRRMK...',
+  'KIIIIIKKAALLLAAKKIIIIIK...',
+  'KILIKAKILLSASLLIKAKILIK...',
   'KSSSKKLKKKKKKKKKLKKSSSK...',
-  'KSSSKSSKLLALLLKSSKSSSK....',
-  'KSDSKSSKLGGGGGKSSKSDSK....',
-  'KSSSKSSKGGDDGGKSSKSSSK....',
-  'KSSSKSSKGGAYGGKSSKSSSK....',
-  'KSSSKSSKGGDDGGKSSKSSSK....',
-  'KSSSKSSKGGDDGGKSSKSSSK....',
-  'KDDDKDDKGGGGGGKDDKDDDK....',
-  'KKKKKKKKKKKKKKKKKKKKKK....',
+  'KSSSKSSKIIIAIIIKSSKSSSK...',
+  'KSDSKSSKIAAAAAIKSSKSDSK...',
+  'KSSSKSSKGGDDGGGKSSKSSSK...',
+  'KSSSKSSKGGAYGGGKSSKSSSK...',
+  'KSSSKSSKGGDDGGGKSSKSSSK...',
+  'KSSSKSSKGGDDGGGKSSKSSSK...',
+  'KDDDKDDKGGGGGGGKDDKDDDK...',
+  'KKKKKKKKKKKKKKKKKKKKKKK...',
   '..........................',
   '..........................',
 ];
 
 const CASTLE_GRAND_FLASH = CASTLE_GRAND_GRID.map((r) =>
-  r.replace(/[SLDMGAY]/g, 'W')
+  r.replace(/[SLDMGAYI]/g, 'W')
 );
 
 // 2. Animated 12x14 Pixel-Art Soldier (Footman / Knight) — 2 Walk Frames
@@ -708,12 +720,20 @@ export interface FactionSprites {
   portLevels: readonly [HTMLCanvasElement, HTMLCanvasElement, HTMLCanvasElement];
   soldierA: HTMLCanvasElement;
   soldierB: HTMLCanvasElement;
+  soldierALeft: HTMLCanvasElement;
+  soldierBLeft: HTMLCanvasElement;
   eliteA: HTMLCanvasElement;
   eliteB: HTMLCanvasElement;
+  eliteALeft: HTMLCanvasElement;
+  eliteBLeft: HTMLCanvasElement;
   shipA: HTMLCanvasElement;
   shipB: HTMLCanvasElement;
+  shipALeft: HTMLCanvasElement;
+  shipBLeft: HTMLCanvasElement;
   eliteShipA: HTMLCanvasElement;
   eliteShipB: HTMLCanvasElement;
+  eliteShipALeft: HTMLCanvasElement;
+  eliteShipBLeft: HTMLCanvasElement;
 }
 
 export class PixelSpriteAtlas {
@@ -738,15 +758,18 @@ export class PixelSpriteAtlas {
   public oasis: HTMLCanvasElement;
   public seaRock: HTMLCanvasElement;
   public merchantDhow: HTMLCanvasElement;
+  public merchantDhowLeft: HTMLCanvasElement;
 
   constructor() {
     const towerPalette: PaletteMap = {
       K: '#0b101a',
+      W: '#f5efe0',
       L: '#cbd5e1',
       S: '#8a99ad',
       I: '#475569',
       D: '#2a3444',
-      B: '#0284c7',
+      B: '#855228',
+      b: '#5c3618',
       C: '#7dd3fc',
       G: '#f5b83d',
       Y: '#fef08a',
@@ -760,6 +783,7 @@ export class PixelSpriteAtlas {
 
     const minePalette: PaletteMap = {
       K: '#0b101a',
+      W: '#f5efe0',
       B: '#7c4d25',
       b: '#5c3618',
       L: '#cbd5e1',
@@ -781,11 +805,12 @@ export class PixelSpriteAtlas {
       C: '#94a3b8',
       S: '#64748b',
       I: '#3f4b5e',
+      B: '#7c4d25',
       M: '#b45309',
       D: '#1e293b',
       O: '#f97316',
       Y: '#fde047',
-      W: '#fffbeb',
+      W: '#f5efe0',
       G: '#f5b83d',
     };
     this.forgeLevels = [
@@ -905,6 +930,7 @@ export class PixelSpriteAtlas {
       B: '#8c5327',
       C: '#9ad8e8',
     });
+    this.merchantDhowLeft = bakeFlippedSprite(this.merchantDhow);
 
     // Bake faction-colored castles (3 tiers), barracks, ports, soldiers & warships
     this.bakeFaction(-1, NEUTRAL_STYLE.color, NEUTRAL_STYLE.borderGlow, '#cbd5e1');
@@ -921,15 +947,17 @@ export class PixelSpriteAtlas {
   ) {
     const castlePalette: PaletteMap = {
       K: '#0b101a',
+      W: '#ffffff',
+      I: '#f5efe0',
       L: '#cbd5e1',
       S: '#8896a8',
       D: '#4c596b',
       G: '#1e293b',
+      B: '#7c4d25',
       M: highlight,
       R: primary,
       A: '#f5b83d',
       Y: '#fef08a',
-      W: '#ffffff',
     };
 
     const soldierPalette: PaletteMap = {
@@ -946,10 +974,11 @@ export class PixelSpriteAtlas {
 
     const barracksPalette: PaletteMap = {
       K: '#0b101a',
-      W: '#ece4d3',
+      W: '#f5efe0',
       L: '#cbd5e1',
       S: '#8e99a8',
       D: '#2a221c',
+      B: '#7c4d25',
       R: primary,
       M: highlight,
       A: '#d97706',
@@ -994,6 +1023,15 @@ export class PixelSpriteAtlas {
       bakeSprite(PORT_LV3_GRID, portPalette),
     ];
 
+    const soldierA = bakeSprite(SOLDIER_FRAME_A, soldierPalette);
+    const soldierB = bakeSprite(SOLDIER_FRAME_B, soldierPalette);
+    const eliteA = bakeSprite(ELITE_FRAME_A, soldierPalette);
+    const eliteB = bakeSprite(ELITE_FRAME_B, soldierPalette);
+    const shipA = bakeSprite(SHIP_FRAME_A, shipPalette);
+    const shipB = bakeSprite(SHIP_FRAME_B, shipPalette);
+    const eliteShipA = bakeSprite(ELITE_SHIP_FRAME_A, shipPalette);
+    const eliteShipB = bakeSprite(ELITE_SHIP_FRAME_B, shipPalette);
+
     this.factions.set(id, {
       castleSmall: bakeSprite(CASTLE_SMALL_GRID, castlePalette),
       castleSmallFlash: bakeSprite(CASTLE_SMALL_FLASH, castlePalette),
@@ -1005,14 +1043,22 @@ export class PixelSpriteAtlas {
       barracksLevels,
       port: portLevels[0],
       portLevels,
-      soldierA: bakeSprite(SOLDIER_FRAME_A, soldierPalette),
-      soldierB: bakeSprite(SOLDIER_FRAME_B, soldierPalette),
-      eliteA: bakeSprite(ELITE_FRAME_A, soldierPalette),
-      eliteB: bakeSprite(ELITE_FRAME_B, soldierPalette),
-      shipA: bakeSprite(SHIP_FRAME_A, shipPalette),
-      shipB: bakeSprite(SHIP_FRAME_B, shipPalette),
-      eliteShipA: bakeSprite(ELITE_SHIP_FRAME_A, shipPalette),
-      eliteShipB: bakeSprite(ELITE_SHIP_FRAME_B, shipPalette),
+      soldierA,
+      soldierB,
+      soldierALeft: bakeFlippedSprite(soldierA),
+      soldierBLeft: bakeFlippedSprite(soldierB),
+      eliteA,
+      eliteB,
+      eliteALeft: bakeFlippedSprite(eliteA),
+      eliteBLeft: bakeFlippedSprite(eliteB),
+      shipA,
+      shipB,
+      shipALeft: bakeFlippedSprite(shipA),
+      shipBLeft: bakeFlippedSprite(shipB),
+      eliteShipA,
+      eliteShipB,
+      eliteShipALeft: bakeFlippedSprite(eliteShipA),
+      eliteShipBLeft: bakeFlippedSprite(eliteShipB),
     });
   }
 

@@ -79,6 +79,38 @@ const FORGE_AURA_COLORS = [
   'rgba(249, 115, 22, 0.295)',
 ] as const;
 
+const PORT_GLOW_COLORS = [
+  'rgba(250, 204, 21, 0.14)',
+  'rgba(250, 204, 21, 0.18)',
+  'rgba(250, 204, 21, 0.22)',
+  'rgba(250, 204, 21, 0.26)',
+  'rgba(250, 204, 21, 0.28)',
+] as const;
+
+const GRAND_AURA_COLORS = [
+  'rgba(250, 204, 21, 0.07)',
+  'rgba(250, 204, 21, 0.11)',
+  'rgba(250, 204, 21, 0.15)',
+  'rgba(250, 204, 21, 0.19)',
+  'rgba(250, 204, 21, 0.23)',
+  'rgba(250, 204, 21, 0.27)',
+] as const;
+
+const BEAT_RIM_COLORS = [
+  'rgba(255, 193, 197, 0.08)',
+  'rgba(255, 193, 197, 0.13)',
+  'rgba(255, 193, 197, 0.18)',
+  'rgba(255, 193, 197, 0.22)',
+] as const;
+
+const SEA_RIPPLE_COLORS = [
+  'rgba(148, 224, 240, 0.48)',
+  'rgba(148, 224, 240, 0.38)',
+  'rgba(148, 224, 240, 0.28)',
+  'rgba(148, 224, 240, 0.18)',
+  'rgba(148, 224, 240, 0.09)',
+] as const;
+
 export interface ViewportTransform {
   width: number;
   height: number;
@@ -100,7 +132,19 @@ export class GameRenderer {
   private cachedMapSeed: number | null = null;
   private cachedCellsRef: Int16Array | null = null;
   private cachedTerritoriesRef: Territory[] | null = null;
+  private cachedOwners: number[] = [];
+  private dirtyTerritoryMask = new Uint8Array(64);
   private sortedTerritories: Territory[] = [];
+  private sortedTroops: GameSimulation['troops'] = [];
+  private threatenedIds = new Set<number>();
+  private validTargetIds = new Set<number>();
+  private navalTargetIds = new Set<number>();
+  private castlePlaques = new Map<
+    number,
+    { key: string; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }
+  >();
+  private troopBadges = new Map<string, HTMLCanvasElement>();
+  private castleNameplates = new Map<string, HTMLCanvasElement>();
   private atlas: PixelSpriteAtlas;
   private vfx: ParticleSystem;
   private texts: FloatingText[];
@@ -133,6 +177,9 @@ export class GameRenderer {
     offsetY: 0,
     dpr: 1,
   };
+  private cameraZoom = 1;
+  private cameraPanX = 0;
+  private cameraPanY = 0;
 
   constructor() {
     this.bgCanvas = document.createElement('canvas');
@@ -220,7 +267,7 @@ export class GameRenderer {
         }
       } else if (ev.type === 'tower_block') {
         if (ev.amount && ev.amount > 0) {
-          this.spawnFloatingText(ev.x, ev.y - 24, `دفاع -${ev.amount}`, '#7dd3fc');
+          this.spawnFloatingText(ev.x, ev.y - 24, `دفع ${ev.amount}`, '#7dd3fc');
         }
       } else if (ev.type === 'capture') {
         this.spawnFloatingText(
@@ -275,6 +322,10 @@ export class GameRenderer {
       this.animatedVillages = [];
       this.cachedMapSeed = map.seed;
       this.cachedCellsRef = cells;
+      this.cachedOwners = territories.map((t) => t.owner);
+      for (const entry of this.castlePlaques.values()) {
+        entry.key = '';
+      }
 
       // Deterministic atmospheric flocks & cloud shadows per seed
       const s = map.seed;
@@ -320,6 +371,29 @@ export class GameRenderer {
             dw,
             dh
           );
+        } else if (feat.kind === 'ship_ambient' && feat.route && feat.route.length >= 2) {
+          const route = feat.route;
+          this.overlayCtx.fillStyle = 'rgba(148, 224, 240, 0.28)';
+          for (let i = 0; i < route.length - 1; i++) {
+            const a = route[i];
+            const b = route[i + 1];
+            const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+            const dots = Math.max(2, Math.floor(segLen / 14));
+            for (let d = 1; d < dots; d++) {
+              const u = d / dots;
+              this.overlayCtx.fillRect(
+                Math.round(a.x + (b.x - a.x) * u) - 1,
+                Math.round(a.y + (b.y - a.y) * u) - 1,
+                2,
+                2
+              );
+            }
+          }
+          const p0 = route[0];
+          const pEnd = route[route.length - 1];
+          this.overlayCtx.fillStyle = 'rgba(186, 230, 253, 0.55)';
+          this.overlayCtx.fillRect(Math.round(p0.x) - 2, Math.round(p0.y) - 2, 4, 4);
+          this.overlayCtx.fillRect(Math.round(pEnd.x) - 2, Math.round(pEnd.y) - 2, 4, 4);
         }
       }
 
@@ -426,13 +500,50 @@ export class GameRenderer {
     const isArchipelago = preset === 'archipelago';
     const isStrait = preset === 'strait';
 
+    if (this.dirtyTerritoryMask.length < territories.length) {
+      this.dirtyTerritoryMask = new Uint8Array(territories.length);
+    }
+    const dirtyMask = this.dirtyTerritoryMask;
+    if (!isNewMap) {
+      dirtyMask.fill(0);
+      let anyDirty = false;
+      for (let i = 0; i < territories.length; i++) {
+        const t = territories[i];
+        if (this.cachedOwners[i] !== t.owner) {
+          anyDirty = true;
+          dirtyMask[t.id] = 1;
+          for (let j = 0; j < t.neighbors.length; j++) {
+            dirtyMask[t.neighbors[j]] = 1;
+          }
+        }
+      }
+      for (let i = 0; i < territories.length; i++) {
+        this.cachedOwners[i] = territories[i].owner;
+      }
+      if (!anyDirty) {
+        sim.mapDirty = false;
+        return;
+      }
+    }
+
+    let minGx = cols;
+    let minGy = rows;
+    let maxGx = -1;
+    let maxGy = -1;
+
     for (let gy = 0; gy < rows; gy++) {
       for (let gx = 0; gx < cols; gx++) {
         const idx = gy * cols + gx;
         const cellId = cells[idx];
 
-        // Ocean pixels never change mid-match; skip on capture re-tints
-        if (cellId === -1 && !isNewMap) continue;
+        // Ocean pixels never change mid-match; on capture re-tints also skip unaffected provinces
+        if (!isNewMap && (cellId === -1 || dirtyMask[cellId] === 0)) continue;
+        if (!isNewMap) {
+          if (gx < minGx) minGx = gx;
+          if (gx > maxGx) maxGx = gx;
+          if (gy < minGy) minGy = gy;
+          if (gy > maxGy) maxGy = gy;
+        }
 
         const elev = elevation[idx];
         const dither = BAYER_2X2[gy & 1][gx & 1];
@@ -677,9 +788,29 @@ export class GameRenderer {
       }
     }
 
-    this.bgCtx.putImageData(this.bgImageData, 0, 0);
-    this.bgCtx.imageSmoothingEnabled = false;
-    this.bgCtx.drawImage(this.overlayCanvas, 0, 0);
+    if (isNewMap) {
+      this.bgCtx.putImageData(this.bgImageData, 0, 0);
+      this.bgCtx.imageSmoothingEnabled = false;
+      this.bgCtx.drawImage(this.overlayCanvas, 0, 0);
+    } else if (maxGx >= minGx && maxGy >= minGy) {
+      const dirtyX = minGx * step;
+      const dirtyY = minGy * step;
+      const dirtyW = Math.min(width - dirtyX, (maxGx - minGx + 1) * step);
+      const dirtyH = Math.min(height - dirtyY, (maxGy - minGy + 1) * step);
+      this.bgCtx.putImageData(this.bgImageData, 0, 0, dirtyX, dirtyY, dirtyW, dirtyH);
+      this.bgCtx.imageSmoothingEnabled = false;
+      this.bgCtx.drawImage(
+        this.overlayCanvas,
+        dirtyX,
+        dirtyY,
+        dirtyW,
+        dirtyH,
+        dirtyX,
+        dirtyY,
+        dirtyW,
+        dirtyH
+      );
+    }
 
     sim.mapDirty = false;
   }
@@ -926,6 +1057,75 @@ export class GameRenderer {
     ctx.restore();
   }
 
+  public getCameraZoom(): number {
+    return this.cameraZoom;
+  }
+
+  public setCameraZoom(
+    zoom: number,
+    anchorClientX?: number,
+    anchorClientY?: number,
+    canvas?: HTMLCanvasElement
+  ): number {
+    const nextZoom = Math.max(1, Math.min(3, zoom));
+    if (nextZoom === 1) {
+      this.cameraZoom = 1;
+      this.cameraPanX = 0;
+      this.cameraPanY = 0;
+      return 1;
+    }
+
+    if (
+      canvas &&
+      anchorClientX !== undefined &&
+      anchorClientY !== undefined &&
+      this.viewport.width > 0
+    ) {
+      const rect = canvas.getBoundingClientRect();
+      const localX = anchorClientX - rect.left;
+      const localY = anchorClientY - rect.top;
+      const worldX = (localX - this.viewport.offsetX) / this.viewport.scale;
+      const worldY = (localY - this.viewport.offsetY) / this.viewport.scale;
+      const nextScale =
+        Math.min(this.viewport.width / WORLD_WIDTH, this.viewport.height / WORLD_HEIGHT) *
+        nextZoom;
+      const baseOffsetX = (this.viewport.width - WORLD_WIDTH * nextScale) * 0.5;
+      const baseOffsetY = (this.viewport.height - WORLD_HEIGHT * nextScale) * 0.5;
+      this.cameraPanX = localX - worldX * nextScale - baseOffsetX;
+      this.cameraPanY = localY - worldY * nextScale - baseOffsetY;
+    }
+
+    this.cameraZoom = nextZoom;
+    this.clampCameraPan();
+    return this.cameraZoom;
+  }
+
+  public panCameraBy(dx: number, dy: number) {
+    if (this.cameraZoom <= 1) return;
+    this.cameraPanX += dx;
+    this.cameraPanY += dy;
+    this.clampCameraPan();
+  }
+
+  public resetCamera() {
+    this.cameraZoom = 1;
+    this.cameraPanX = 0;
+    this.cameraPanY = 0;
+  }
+
+  private clampCameraPan() {
+    const w = this.viewport.width;
+    const h = this.viewport.height;
+    if (w <= 0 || h <= 0) return;
+    const baseScale = Math.min(w / WORLD_WIDTH, h / WORLD_HEIGHT);
+    const zoomedW = WORLD_WIDTH * baseScale * this.cameraZoom;
+    const zoomedH = WORLD_HEIGHT * baseScale * this.cameraZoom;
+    const maxPanX = Math.max(0, (zoomedW - w) * 0.5 + 80);
+    const maxPanY = Math.max(0, (zoomedH - h) * 0.5 + 80);
+    this.cameraPanX = Math.max(-maxPanX, Math.min(maxPanX, this.cameraPanX));
+    this.cameraPanY = Math.max(-maxPanY, Math.min(maxPanY, this.cameraPanY));
+  }
+
   public updateViewportSize(
     canvas: HTMLCanvasElement,
     cssWidth: number,
@@ -933,7 +1133,7 @@ export class GameRenderer {
   ): ViewportTransform {
     const w = Math.max(1, cssWidth);
     const h = Math.max(1, cssHeight);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, w < 960 ? 1.5 : 2);
     const targetW = Math.max(1, Math.round(w * dpr));
     const targetH = Math.max(1, Math.round(h * dpr));
     if (canvas.width !== targetW || canvas.height !== targetH) {
@@ -941,11 +1141,21 @@ export class GameRenderer {
       canvas.height = targetH;
     }
 
-    const scale = Math.min(w / WORLD_WIDTH, h / WORLD_HEIGHT);
-    const offsetX = (w - WORLD_WIDTH * scale) * 0.5;
-    const offsetY = (h - WORLD_HEIGHT * scale) * 0.5;
+    const scale = Math.min(w / WORLD_WIDTH, h / WORLD_HEIGHT) * this.cameraZoom;
+    const baseOffsetX = (w - WORLD_WIDTH * scale) * 0.5;
+    const baseOffsetY = (h - WORLD_HEIGHT * scale) * 0.5;
 
-    this.viewport = { width: w, height: h, scale, offsetX, offsetY, dpr };
+    this.viewport = {
+      width: w,
+      height: h,
+      scale,
+      offsetX: baseOffsetX + this.cameraPanX,
+      offsetY: baseOffsetY + this.cameraPanY,
+      dpr,
+    };
+    this.clampCameraPan();
+    this.viewport.offsetX = baseOffsetX + this.cameraPanX;
+    this.viewport.offsetY = baseOffsetY + this.cameraPanY;
     return this.viewport;
   }
 
@@ -1048,7 +1258,8 @@ export class GameRenderer {
     const activeHoverId = dragAim?.active ? dragAim.hoverTargetId : hoveredId;
 
     // 3. Incoming Enemy Threat Sightlines toward Player Castles
-    const threatenedPlayerIds = new Set<number>();
+    const threatenedPlayerIds = this.threatenedIds;
+    threatenedPlayerIds.clear();
     if (!isTitleBackdrop) {
       this.drawIncomingThreats(ctx, sim, timeSec, threatenedPlayerIds);
     }
@@ -1063,16 +1274,30 @@ export class GameRenderer {
       this.drawSelectedRoutes(ctx, sim, activeOrigin, activeHoverId, timeSec);
     }
 
+    // Precompute valid/naval target sets once per frame so future dispatch rules stay in sync
+    this.validTargetIds.clear();
+    this.navalTargetIds.clear();
+    if (!isTitleBackdrop && activeOrigin && activeOrigin.owner === 0) {
+      for (let i = 0; i < sim.territories.length; i++) {
+        const target = sim.territories[i];
+        const check = canDispatchTo(sim, activeOrigin.id, target.id);
+        if (check.allowed) {
+          this.validTargetIds.add(target.id);
+          if (check.isNaval) {
+            this.navalTargetIds.add(target.id);
+          }
+        }
+      }
+    }
+
     // 5. Pixel Hover Target Corner Brackets
     if (activeHoverId !== null && activeHoverId !== activeOriginId && !isTitleBackdrop) {
       const hov = sim.territories[activeHoverId];
       if (hov) {
-        const dispatchCheck =
-          activeOrigin && activeOrigin.owner === 0
-            ? canDispatchTo(sim, activeOrigin.id, hov.id)
-            : { allowed: false, isNaval: false };
-        const col = dispatchCheck.allowed
-          ? dispatchCheck.isNaval
+        const isValidHover = this.validTargetIds.has(hov.id);
+        const isNavalHover = this.navalTargetIds.has(hov.id);
+        const col = isValidHover
+          ? isNavalHover
             ? '#38bdf8'
             : hov.owner === 0
               ? '#4ade80'
@@ -1088,16 +1313,14 @@ export class GameRenderer {
       this.sortedTerritories = [...sim.territories].sort((a, b) => a.y - b.y);
     }
     for (const t of this.sortedTerritories) {
-      const targetCheck =
-        !isTitleBackdrop && activeOrigin !== null && activeOrigin.owner === 0
-          ? canDispatchTo(sim, activeOrigin.id, t.id)
-          : { allowed: false, isNaval: false };
+      const isValidTarget = this.validTargetIds.has(t.id);
+      const isNavalTarget = isValidTarget && this.navalTargetIds.has(t.id);
       this.drawPixelCastle(
         ctx,
         t,
         !isTitleBackdrop && activeOriginId === t.id,
-        targetCheck.allowed,
-        targetCheck.allowed && targetCheck.isNaval,
+        isValidTarget,
+        isNavalTarget,
         !isTitleBackdrop && threatenedPlayerIds.has(t.id),
         timeSec,
         isTitleBackdrop,
@@ -1106,14 +1329,25 @@ export class GameRenderer {
     }
 
     // 7. Render Animated Marching Pixel-Art Soldier Squads & Naval Warships (sorted top-to-bottom)
-    const sortedTroops = [...sim.troops].sort((a, b) => a.y - b.y);
-    const blitzActive = sim.powers.blitzTimer > 0;
-    for (const tr of sortedTroops) {
-      if (tr.isNaval) {
-        this.drawPixelWarship(ctx, tr, blitzActive && tr.owner === 0, musicSync);
-      } else {
-        this.drawPixelSoldierSquad(ctx, tr, blitzActive && tr.owner === 0, musicSync);
+    const troopCount = sim.troops.length;
+    if (troopCount > 0) {
+      this.sortedTroops.length = troopCount;
+      for (let i = 0; i < troopCount; i++) {
+        this.sortedTroops[i] = sim.troops[i];
       }
+      if (troopCount > 1) {
+        this.sortedTroops.sort((a, b) => a.y - b.y);
+      }
+      const blitzActive = sim.powers.blitzTimer > 0;
+      for (let i = 0; i < troopCount; i++) {
+        const tr = this.sortedTroops[i];
+        if (tr.isNaval) {
+          this.drawPixelWarship(ctx, tr, blitzActive && tr.owner === 0, musicSync);
+        } else {
+          this.drawPixelSoldierSquad(ctx, tr, blitzActive && tr.owner === 0, musicSync);
+        }
+      }
+      this.sortedTroops.length = 0;
     }
 
     // 8. Live Drag-to-Attack Pixel Trajectory Arrow
@@ -1199,12 +1433,50 @@ export class GameRenderer {
     // 2d. Ambient ocean merchant dhows & surfacing deep-sea creature ripples
     for (const feat of map.oceanFeatures) {
       if (feat.kind === 'ship_ambient') {
-        const drift = Math.sin(timeSec * 0.24 + feat.phase) * 24;
-        const bob = Math.round(Math.sin(timeSec * 2.6 + feat.phase) * 1.4);
-        const sx = Math.round(feat.x + drift * feat.dir);
-        const sy = Math.round(feat.y + bob);
-        const facingLeft = Math.cos(timeSec * 0.24 + feat.phase) * feat.dir < 0;
-        const spr = this.atlas.merchantDhow;
+        const route = feat.route;
+        let sx = feat.x;
+        let sy = feat.y;
+        let facingLeft = feat.dir < 0;
+
+        if (route && route.length >= 2) {
+          let totalLen = 0;
+          for (let i = 0; i < route.length - 1; i++) {
+            const a = route[i];
+            const b = route[i + 1];
+            totalLen += Math.hypot(b.x - a.x, b.y - a.y);
+          }
+
+          const speedPx = 20;
+          const cycle = ((timeSec * speedPx) / Math.max(40, totalLen) + feat.phase / (Math.PI * 2)) % 2;
+          const forward = cycle <= 1;
+          const distTarget = (forward ? cycle : 2 - cycle) * totalLen;
+
+          let acc = 0;
+          for (let i = 0; i < route.length - 1; i++) {
+            const a = route[i];
+            const b = route[i + 1];
+            const segLen = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+            if (acc + segLen >= distTarget || i === route.length - 2) {
+              const localU = Math.max(0, Math.min(1, (distTarget - acc) / segLen));
+              sx = Math.round(a.x + (b.x - a.x) * localU);
+              sy = Math.round(a.y + (b.y - a.y) * localU + Math.sin(timeSec * 2.6 + feat.phase) * 1.2);
+              const dirX = forward ? b.x - a.x : a.x - b.x;
+              if (Math.abs(dirX) > 0.5) {
+                facingLeft = dirX < 0;
+              }
+              break;
+            }
+            acc += segLen;
+          }
+        } else {
+          const drift = Math.sin(timeSec * 0.24 + feat.phase) * 24;
+          const bob = Math.round(Math.sin(timeSec * 2.6 + feat.phase) * 1.4);
+          sx = Math.round(feat.x + drift * feat.dir);
+          sy = Math.round(feat.y + bob);
+          facingLeft = Math.cos(timeSec * 0.24 + feat.phase) * feat.dir < 0;
+        }
+
+        const spr = facingLeft ? this.atlas.merchantDhowLeft : this.atlas.merchantDhow;
         const dw = Math.round(spr.width * 1.6);
         const dh = Math.round(spr.height * 1.6);
 
@@ -1214,18 +1486,15 @@ export class GameRenderer {
         ctx.fillRect(sx + wakeDir * 9, sy + 5, 6, 2);
         ctx.fillRect(sx + wakeDir * 14, sy + 7, 4, 1);
 
-        ctx.save();
-        ctx.translate(sx, sy);
-        if (facingLeft) ctx.scale(-1, 1);
-        ctx.drawImage(spr, -Math.round(dw * 0.5), -Math.round(dh * 0.55), dw, dh);
-        ctx.restore();
+        ctx.drawImage(spr, sx - Math.round(dw * 0.5), sy - Math.round(dh * 0.55), dw, dh);
       } else if (feat.kind === 'sea_creature') {
         // Periodic deep-ocean whale breach / concentric ripple rings
         const period = (timeSec * 0.38 + feat.phase) % 4.5;
         if (period < 1.8) {
           const p = period / 1.8;
           const rad = Math.round(4 + p * 14);
-          ctx.strokeStyle = `rgba(148, 224, 240, ${(1 - p) * 0.48})`;
+          const colorIdx = Math.min(SEA_RIPPLE_COLORS.length - 1, Math.floor(p * SEA_RIPPLE_COLORS.length));
+          ctx.strokeStyle = SEA_RIPPLE_COLORS[colorIdx];
           ctx.lineWidth = 1.5;
           ctx.strokeRect(feat.x - rad, feat.y - Math.round(rad * 0.55), rad * 2, Math.round(rad * 1.1));
           if (p > 0.15 && p < 0.7) {
@@ -1409,30 +1678,46 @@ export class GameRenderer {
   }
 
   private drawCastleNameplate(ctx: CanvasRenderingContext2D, t: Territory) {
-    const biome = BIOMES[t.biome];
-    const label = `${t.name} · ${biome.name}`;
+    const key = `${t.name}|${t.biome}`;
+    let npCanvas = this.castleNameplates.get(key);
+    if (!npCanvas) {
+      if (this.castleNameplates.size > 64) {
+        this.castleNameplates.clear();
+      }
+      const biome = BIOMES[t.biome];
+      const label = `${t.name} · ${biome.name}`;
+      npCanvas = document.createElement('canvas');
+      const nctx = npCanvas.getContext('2d')!;
+      nctx.direction = 'rtl';
+      nctx.font = '700 11px "Vazirmatn", sans-serif';
+      const textW = nctx.measureText(label).width;
+      const boxW = Math.round(textW + 16);
+      const boxH = 20;
+      npCanvas.width = boxW + 2;
+      npCanvas.height = boxH + 2;
 
-    ctx.save();
-    ctx.direction = 'rtl';
-    ctx.font = '700 11px "Vazirmatn", sans-serif';
-    const textW = ctx.measureText(label).width;
-    const boxW = Math.round(textW + 16);
-    const boxH = 20;
+      const cctx = npCanvas.getContext('2d')!;
+      cctx.imageSmoothingEnabled = false;
+      cctx.fillStyle = '#090e18';
+      cctx.fillRect(0, 0, boxW + 2, boxH + 2);
+      cctx.fillStyle = 'rgba(16, 24, 39, 0.94)';
+      cctx.fillRect(1, 1, boxW, boxH);
+      cctx.fillStyle = '#334866';
+      cctx.fillRect(1, boxH, boxW, 1);
+
+      cctx.direction = 'rtl';
+      cctx.font = '700 11px "Vazirmatn", sans-serif';
+      cctx.fillStyle = '#f2e8d5';
+      cctx.textAlign = 'center';
+      cctx.textBaseline = 'middle';
+      cctx.fillText(label, 1 + boxW * 0.5, 1 + boxH * 0.5 + 0.5);
+      this.castleNameplates.set(key, npCanvas);
+    }
+
+    const boxW = npCanvas.width - 2;
     const bx = Math.max(8, Math.min(WORLD_WIDTH - boxW - 8, Math.round(t.x - boxW * 0.5)));
     const by = Math.max(8, Math.round(t.y - 54));
-
-    ctx.fillStyle = '#090e18';
-    ctx.fillRect(bx - 1, by - 1, boxW + 2, boxH + 2);
-    ctx.fillStyle = 'rgba(16, 24, 39, 0.94)';
-    ctx.fillRect(bx, by, boxW, boxH);
-    ctx.fillStyle = '#334866';
-    ctx.fillRect(bx, by + boxH - 1, boxW, 1);
-
-    ctx.fillStyle = '#f2e8d5';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, bx + boxW * 0.5, by + boxH * 0.5 + 0.5);
-    ctx.restore();
+    ctx.drawImage(npCanvas, bx - 1, by - 1);
   }
 
   private drawTacticalPreview(
@@ -1451,6 +1736,12 @@ export class GameRenderer {
     let textColor: string;
 
     const modePrefix = preview.isNaval ? 'یورش دریایی' : 'حمله';
+    const rawRounded = Math.round(preview.rawAttackPower);
+    const attackLabel =
+      rawRounded > preview.sendAmount
+        ? `${modePrefix} ${preview.sendAmount} (قدرت ${rawRounded})`
+        : `${modePrefix} ${preview.sendAmount}`;
+
     if (preview.sendAmount < 1) {
       label = 'نیرو کافی نیست';
       borderColor = '#64748b';
@@ -1462,18 +1753,18 @@ export class GameRenderer {
       borderColor = preview.isNaval ? '#38bdf8' : '#4ade80';
       textColor = preview.isNaval ? '#bae6fd' : '#bbf7d0';
     } else if (preview.willConquer) {
-      label = `${modePrefix} ${preview.sendAmount} · پیروزی محتمل`;
+      label = `${attackLabel} · پیروزی محتمل`;
       borderColor = preview.isNaval ? '#38bdf8' : '#fde047';
       textColor = preview.isNaval ? '#e0f2fe' : '#fef08a';
     } else if (preview.advantageRatio >= 0.65) {
-      label = `${modePrefix} ${preview.sendAmount} · نبرد نزدیک`;
+      label = `${attackLabel} · نبرد نزدیک`;
       borderColor = '#fb923c';
       textColor = '#fed7aa';
     } else {
       label =
         preview.defenseBonusPct > 0
-          ? `${modePrefix} ${preview.sendAmount} · دفاع -${preview.defenseBonusPct}%`
-          : `${modePrefix} ${preview.sendAmount} · دفاع سنگین`;
+          ? `${attackLabel} · دفاع -${preview.defenseBonusPct}%`
+          : `${attackLabel} · دفاع سنگین`;
       borderColor = '#f87171';
       textColor = '#fecaca';
     }
@@ -1634,9 +1925,6 @@ export class GameRenderer {
     const cx = Math.round(t.x);
     const cy = Math.round(t.y);
 
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
-
     const portLvl = getBuildingLevel(t, 'port');
     const mineLvl = getBuildingLevel(t, 'mine');
     const barracksLvl = getBuildingLevel(t, 'barracks');
@@ -1672,7 +1960,8 @@ export class GameRenderer {
 
       if (portLvl === 3) {
         const gPulse = 0.5 + 0.5 * Math.sin(timeSec * 3.8 + t.id);
-        ctx.fillStyle = `rgba(250, 204, 21, ${(0.14 + gPulse * 0.14).toFixed(3)})`;
+        const pIdx = Math.min(PORT_GLOW_COLORS.length - 1, Math.floor(gPulse * PORT_GLOW_COLORS.length));
+        ctx.fillStyle = PORT_GLOW_COLORS[pIdx];
         ctx.fillRect(px - 2, py + ph - 8, pw + 4, 8);
       }
 
@@ -1725,7 +2014,8 @@ export class GameRenderer {
             : 'rgba(251, 191, 36, 0.75)'
       );
     } else if (musicSync.active && t.owner === 0 && !isTitleBackdrop && musicSync.beatPulse > 0.58) {
-      ctx.fillStyle = `rgba(255, 193, 197, ${(0.08 + musicSync.energy * 0.14).toFixed(3)})`;
+      const bIdx = Math.min(BEAT_RIM_COLORS.length - 1, Math.floor(musicSync.energy * BEAT_RIM_COLORS.length));
+      ctx.fillStyle = BEAT_RIM_COLORS[bIdx];
       ctx.fillRect(cx - 25, cy + 8, 50, 2);
     }
 
@@ -1842,8 +2132,9 @@ export class GameRenderer {
     // Subtle gilded radial aura under Grand Imperial Citadels
     if (isGrand && t.hitFlash <= 0) {
       const beatLift = musicSync.active ? musicSync.beatPulse * 0.055 : 0;
-      const auraPulse = 0.14 + 0.07 * Math.sin(timeSec * 3.2 + t.id) + beatLift;
-      ctx.fillStyle = `rgba(250, 204, 21, ${auraPulse.toFixed(3)})`;
+      const auraNorm = Math.min(0.99, Math.max(0, 0.35 + 0.35 * Math.sin(timeSec * 3.2 + t.id) + beatLift * 4));
+      const aIdx = Math.floor(auraNorm * GRAND_AURA_COLORS.length);
+      ctx.fillStyle = GRAND_AURA_COLORS[aIdx];
       ctx.fillRect(cx - 26, cy + 5, 52, 8);
     }
 
@@ -1970,61 +2261,139 @@ export class GameRenderer {
       ctx.fillRect(ax - 1, ay + 2, 2, 2);
     }
 
-    // 7. Crisp Pixel-Beveled Tactical Data Plaque below Castle
+    // 7. Crisp Pixel-Beveled Tactical Data Plaque below Castle (cached offscreen per state)
     if (!isTitleBackdrop) {
       const plateW = 86;
-      const plateH = 23;
       const px = cx - Math.round(plateW / 2);
       const py = cy + 14;
+      const plaqueCanvas = this.getCastlePlaqueCanvas(t, isSelected, isThreatened, glowColor);
+      ctx.drawImage(plaqueCanvas, px - 2, py - 2);
+    }
+  }
 
-      ctx.fillStyle = '#090e18';
-      ctx.fillRect(px - 2, py - 2, plateW + 4, plateH + 4);
-      ctx.fillStyle = isSelected ? '#fbbf24' : isThreatened ? '#f87171' : glowColor;
-      ctx.fillRect(px - 1, py - 1, plateW + 2, plateH + 2);
-      ctx.fillStyle = '#101827';
-      ctx.fillRect(px, py, plateW, plateH);
+  private getCastlePlaqueCanvas(
+    t: Territory,
+    isSelected: boolean,
+    isThreatened: boolean,
+    glowColor: string
+  ): HTMLCanvasElement {
+    const plateW = 86;
+    const plateH = 23;
+    const mil = Math.floor(t.military);
+    const mp = Math.floor(t.manpower);
+    const maxMp = getTerritoryRates(t).maxManpower;
+    const barW = Math.round((plateW - 4) * Math.min(1, t.manpower / maxMp));
+    const key = `${t.owner}|${mil}|${mp}|${isSelected ? 1 : 0}|${isThreatened ? 1 : 0}|${t.hasBarracks ? 1 : 0}|${barW}`;
 
-      // Tiny pixel sword icon next to Military
-      ctx.fillStyle = '#f87171';
-      ctx.fillRect(px + 6, py + 11, 2, 2);
-      ctx.fillRect(px + 8, py + 9, 2, 2);
-      ctx.fillRect(px + 10, py + 7, 2, 2);
-      ctx.fillRect(px + 12, py + 5, 2, 2);
-      ctx.fillStyle = '#e2e8f0';
-      ctx.fillRect(px + 7, py + 12, 2, 2);
-
-      // Military Count (bold bright white)
-      ctx.direction = 'ltr';
-      ctx.font = '700 12px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(`${Math.floor(t.military)}`, cx - 13, py + 10);
-
-      // Pixel divider
-      ctx.fillStyle = '#293852';
-      ctx.fillRect(cx + 2, py + 3, 2, 13);
-
-      // Tiny pixel helmet/person icon next to Manpower
-      ctx.fillStyle = '#d6b472';
-      ctx.fillRect(cx + 9, py + 6, 4, 4);
-      ctx.fillRect(cx + 7, py + 11, 8, 4);
-
-      // Manpower Count
-      ctx.font = '500 11px "JetBrains Mono", monospace';
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillText(`${Math.floor(t.manpower)}`, cx + 28, py + 10);
-
-      // Crisp Pixel Manpower Progress Strip along bottom of plaque
-      const maxMp = getTerritoryRates(t).maxManpower;
-      const ratio = Math.min(1, t.manpower / maxMp);
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(px + 2, py + plateH - 4, plateW - 4, 3);
-      ctx.fillStyle = t.hasBarracks ? '#fbbf24' : glowColor;
-      ctx.fillRect(px + 2, py + plateH - 4, Math.round((plateW - 4) * ratio), 3);
+    let entry = this.castlePlaques.get(t.id);
+    if (!entry) {
+      const canvas = document.createElement('canvas');
+      canvas.width = plateW + 4;
+      canvas.height = plateH + 4;
+      const pctx = canvas.getContext('2d')!;
+      pctx.imageSmoothingEnabled = false;
+      entry = { key: '', canvas, ctx: pctx };
+      this.castlePlaques.set(t.id, entry);
     }
 
-    ctx.restore();
+    if (entry.key === key) {
+      return entry.canvas;
+    }
+    entry.key = key;
+
+    const pctx = entry.ctx;
+    const ox = 2;
+    const oy = 2;
+    const centerRelX = Math.round(plateW / 2) + ox;
+
+    pctx.fillStyle = '#090e18';
+    pctx.fillRect(0, 0, plateW + 4, plateH + 4);
+    pctx.fillStyle = isSelected ? '#fbbf24' : isThreatened ? '#f87171' : glowColor;
+    pctx.fillRect(1, 1, plateW + 2, plateH + 2);
+    pctx.fillStyle = '#101827';
+    pctx.fillRect(ox, oy, plateW, plateH);
+
+    // Tiny pixel sword icon next to Military
+    pctx.fillStyle = '#f87171';
+    pctx.fillRect(ox + 6, oy + 11, 2, 2);
+    pctx.fillRect(ox + 8, oy + 9, 2, 2);
+    pctx.fillRect(ox + 10, oy + 7, 2, 2);
+    pctx.fillRect(ox + 12, oy + 5, 2, 2);
+    pctx.fillStyle = '#e2e8f0';
+    pctx.fillRect(ox + 7, oy + 12, 2, 2);
+
+    // Military Count (bold bright white)
+    pctx.direction = 'ltr';
+    pctx.font = '700 12px "JetBrains Mono", monospace';
+    pctx.textAlign = 'center';
+    pctx.textBaseline = 'middle';
+    pctx.fillStyle = '#ffffff';
+    pctx.fillText(`${mil}`, centerRelX - 13, oy + 10);
+
+    // Pixel divider
+    pctx.fillStyle = '#293852';
+    pctx.fillRect(centerRelX + 2, oy + 3, 2, 13);
+
+    // Tiny pixel helmet/person icon next to Manpower
+    pctx.fillStyle = '#d6b472';
+    pctx.fillRect(centerRelX + 9, oy + 6, 4, 4);
+    pctx.fillRect(centerRelX + 7, oy + 11, 8, 4);
+
+    // Manpower Count
+    pctx.font = '500 11px "JetBrains Mono", monospace';
+    pctx.fillStyle = '#cbd5e1';
+    pctx.fillText(`${mp}`, centerRelX + 28, oy + 10);
+
+    // Crisp Pixel Manpower Progress Strip along bottom of plaque
+    pctx.fillStyle = '#1e293b';
+    pctx.fillRect(ox + 2, oy + plateH - 4, plateW - 4, 3);
+    pctx.fillStyle = t.hasBarracks ? '#fbbf24' : glowColor;
+    pctx.fillRect(ox + 2, oy + plateH - 4, barW, 3);
+
+    return entry.canvas;
+  }
+
+  private getTroopBadgeCanvas(
+    owner: number,
+    isNaval: boolean,
+    isElite: boolean,
+    countInt: number,
+    borderColor: string,
+    fillColor: string
+  ): HTMLCanvasElement {
+    const key = `${owner}|${isNaval ? 1 : 0}|${isElite ? 1 : 0}|${countInt}`;
+    let canvas = this.troopBadges.get(key);
+    if (canvas) return canvas;
+
+    if (this.troopBadges.size > 256) {
+      this.troopBadges.clear();
+    }
+
+    const countText = `${countInt}`;
+    const badgeW = Math.max(24, countText.length * 8 + 10);
+    const badgeH = 15;
+    canvas = document.createElement('canvas');
+    canvas.width = badgeW + 4;
+    canvas.height = badgeH + 4;
+    const bctx = canvas.getContext('2d')!;
+    bctx.imageSmoothingEnabled = false;
+
+    bctx.fillStyle = '#090e18';
+    bctx.fillRect(0, 0, badgeW + 4, badgeH + 4);
+    bctx.fillStyle = borderColor;
+    bctx.fillRect(1, 1, badgeW + 2, badgeH + 2);
+    bctx.fillStyle = fillColor;
+    bctx.fillRect(2, 2, badgeW, badgeH);
+
+    bctx.fillStyle = '#ffffff';
+    bctx.direction = 'ltr';
+    bctx.font = '700 10px "JetBrains Mono", monospace';
+    bctx.textAlign = 'center';
+    bctx.textBaseline = 'middle';
+    bctx.fillText(countText, 2 + badgeW * 0.5, 2 + 8);
+
+    this.troopBadges.set(key, canvas);
+    return canvas;
   }
 
   /** Renders an animated 16-bit pixel-art marching soldier squad (2–4 animated warriors + marching dust + count badge) */
@@ -2063,9 +2432,6 @@ export class GameRenderer {
               { ox: 7, oy: 3, elite: false, phase: 1 },
             ];
 
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
-
     const trailDir = tr.facingLeft ? 1 : -1;
 
     // Subtle marching dust pixel specks behind army boots (brighter & longer trail on kick surges)
@@ -2086,16 +2452,24 @@ export class GameRenderer {
       ctx.fillRect(cx + trailDir * 14, cy + 8, 8, 2);
     }
 
-    // Draw each animated pixel warrior in formation
+    // Draw each animated pixel warrior in formation (pre-flipped sprites avoid save/scale/restore per unit)
     for (const unit of offsets) {
       const useA = (frameIdx + unit.phase) % 2 === 0;
       const spr = unit.elite
-        ? useA
-          ? sprites.eliteA
-          : sprites.eliteB
-        : useA
-          ? sprites.soldierA
-          : sprites.soldierB;
+        ? tr.facingLeft
+          ? useA
+            ? sprites.eliteALeft
+            : sprites.eliteBLeft
+          : useA
+            ? sprites.eliteA
+            : sprites.eliteB
+        : tr.facingLeft
+          ? useA
+            ? sprites.soldierALeft
+            : sprites.soldierBLeft
+          : useA
+            ? sprites.soldierA
+            : sprites.soldierB;
 
       const scale = 1.65;
       const dw = Math.round(spr.width * scale);
@@ -2106,37 +2480,19 @@ export class GameRenderer {
       ctx.fillStyle = 'rgba(9, 13, 22, 0.52)';
       ctx.fillRect(ux - 6, uy + Math.round(dh * 0.34), 12, 3);
 
-      ctx.save();
-      ctx.translate(ux, uy);
-      if (tr.facingLeft) {
-        ctx.scale(-1, 1);
-      }
-      ctx.drawImage(spr, -Math.round(dw * 0.5), -Math.round(dh * 0.55), dw, dh);
-      ctx.restore();
+      ctx.drawImage(spr, ux - Math.round(dw * 0.5), uy - Math.round(dh * 0.55), dw, dh);
     }
 
-    // Crisp Pixel Troop Count Plate floating directly above the squad
-    const countText = `${Math.floor(tr.count)}`;
-    const badgeW = Math.max(24, countText.length * 8 + 10);
-    const badgeH = 15;
-    const bx = cx - Math.round(badgeW / 2);
-    const by = cy - 26;
-
-    ctx.fillStyle = '#090e18';
-    ctx.fillRect(bx - 2, by - 2, badgeW + 4, badgeH + 4);
-    ctx.fillStyle = tr.isElite ? '#fde047' : faction.borderGlow;
-    ctx.fillRect(bx - 1, by - 1, badgeW + 2, badgeH + 2);
-    ctx.fillStyle = faction.color;
-    ctx.fillRect(bx, by, badgeW, badgeH);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.direction = 'ltr';
-    ctx.font = '700 10px "JetBrains Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(countText, cx, by + 8);
-
-    ctx.restore();
+    // Crisp cached Pixel Troop Count Plate floating directly above the squad
+    const badgeCanvas = this.getTroopBadgeCanvas(
+      tr.owner,
+      false,
+      tr.isElite,
+      Math.floor(tr.count),
+      tr.isElite ? '#fde047' : faction.borderGlow,
+      faction.color
+    );
+    ctx.drawImage(badgeCanvas, cx - Math.round(badgeCanvas.width * 0.5), cy - 28);
   }
 
   /** Renders an animated 16-bit pixel-art medieval warship for Naval Raids */
@@ -2154,54 +2510,41 @@ export class GameRenderer {
     const animSpeed = blitzBoost ? 10 : 5;
     const useA = Math.floor(this.marchAnimTime * animSpeed + tr.id * 1.3) % 2 === 0;
     const spr = tr.isElite
-      ? useA
-        ? sprites.eliteShipA
-        : sprites.eliteShipB
-      : useA
-        ? sprites.shipA
-        : sprites.shipB;
+      ? tr.facingLeft
+        ? useA
+          ? sprites.eliteShipALeft
+          : sprites.eliteShipBLeft
+        : useA
+          ? sprites.eliteShipA
+          : sprites.eliteShipB
+      : tr.facingLeft
+        ? useA
+          ? sprites.shipALeft
+          : sprites.shipBLeft
+        : useA
+          ? sprites.shipA
+          : sprites.shipB;
 
     const scale = 2.0;
     const dw = Math.round(spr.width * scale);
     const dh = Math.round(spr.height * scale);
-
-    ctx.save();
-    ctx.imageSmoothingEnabled = false;
 
     const trailDir = tr.facingLeft ? 1 : -1;
     ctx.fillStyle = 'rgba(186, 230, 253, 0.65)';
     ctx.fillRect(cx + trailDir * 14, cy + 7, 8, 2);
     ctx.fillRect(cx + trailDir * 20, cy + 10, 6, 2);
 
-    ctx.save();
-    ctx.translate(cx, cy);
-    if (tr.facingLeft) {
-      ctx.scale(-1, 1);
-    }
-    ctx.drawImage(spr, -Math.round(dw * 0.5), -Math.round(dh * 0.6), dw, dh);
-    ctx.restore();
+    ctx.drawImage(spr, cx - Math.round(dw * 0.5), cy - Math.round(dh * 0.6), dw, dh);
 
-    const countText = `${Math.floor(tr.count)}`;
-    const badgeW = Math.max(24, countText.length * 8 + 10);
-    const badgeH = 15;
-    const bx = cx - Math.round(badgeW / 2);
-    const by = cy - 28;
-
-    ctx.fillStyle = '#090e18';
-    ctx.fillRect(bx - 2, by - 2, badgeW + 4, badgeH + 4);
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(bx - 1, by - 1, badgeW + 2, badgeH + 2);
-    ctx.fillStyle = faction.color;
-    ctx.fillRect(bx, by, badgeW, badgeH);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.direction = 'ltr';
-    ctx.font = '700 10px "JetBrains Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(countText, cx, by + 8);
-
-    ctx.restore();
+    const badgeCanvas = this.getTroopBadgeCanvas(
+      tr.owner,
+      true,
+      tr.isElite,
+      Math.floor(tr.count),
+      '#38bdf8',
+      faction.color
+    );
+    ctx.drawImage(badgeCanvas, cx - Math.round(badgeCanvas.width * 0.5), cy - 30);
   }
 
   private drawPixelRings(ctx: CanvasRenderingContext2D) {

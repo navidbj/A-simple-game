@@ -117,3 +117,17 @@ test('computeSyncFromSamples resolves 40-180 Hz bass flux at 48 kHz / fftSize=10
     `Expected bass kick impulse from bins 1..3 to boost troopSpeedScale > 1.15, got ${res.sync.troopSpeedScale}`
   );
 });
+
+test('soundEngine.toggleMute restores audible masterVolume after sliding volume to 0', () => {
+  soundEngine.setMasterVolume(0.65);
+  soundEngine.setMasterVolume(0);
+  assert.equal(soundEngine.isMuted(), true);
+  assert.equal(soundEngine.getMasterVolume(), 0);
+
+  const mutedAfterToggle = soundEngine.toggleMute();
+  assert.equal(mutedAfterToggle, false);
+  assert.ok(
+    soundEngine.getMasterVolume() >= 0.5,
+    `Expected unmute to restore audible masterVolume, got ${soundEngine.getMasterVolume()}`
+  );
+});

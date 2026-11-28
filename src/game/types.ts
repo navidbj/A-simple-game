@@ -88,6 +88,7 @@ export interface OceanFeature {
   phase: number;
   scale: number;
   dir: number;
+  route?: Array<{ x: number; y: number }>;
 }
 
 export interface CoastSurfPoint {

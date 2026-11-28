@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { FactionPowerEntry, HudSnapshot } from '../game/types';
 import { KeyboardIcon, LogScrollIcon, MapDiceIcon, MusicNoteIcon } from './GameIcons';
 import {
@@ -21,6 +21,8 @@ interface TopHudBarProps {
   compact: boolean;
   muted: boolean;
   musicMuted: boolean;
+  masterVolume: number;
+  zoomLevel: number;
   battleLogOpen: boolean;
   gameSpeed: number;
   onCycleSpeed: () => void;
@@ -28,6 +30,10 @@ interface TopHudBarProps {
   onNewMap: () => void;
   onToggleMusic: () => void;
   onToggleMute: () => void;
+  onChangeVolume: (volume: number) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onResetZoom: () => void;
   onTogglePause: () => void;
   onToggleBattleLog: () => void;
 }
@@ -39,11 +45,13 @@ function formatClock(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export function TopHudBar({
+export const TopHudBar = memo(function TopHudBar({
   hud,
   compact,
   muted,
   musicMuted,
+  masterVolume,
+  zoomLevel,
   battleLogOpen,
   gameSpeed,
   onCycleSpeed,
@@ -51,20 +59,26 @@ export function TopHudBar({
   onNewMap,
   onToggleMusic,
   onToggleMute,
+  onChangeVolume,
+  onZoomIn,
+  onZoomOut,
+  onResetZoom,
   onTogglePause,
   onToggleBattleLog,
 }: TopHudBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [soundMenuOpen, setSoundMenuOpen] = useState(false);
   const [hoveredFaction, setHoveredFaction] = useState<FactionPowerEntry | null>(null);
   const menuWrapRef = useRef<HTMLDivElement | null>(null);
   const totalTerr = Math.max(1, hud.totalTerritories);
   const speedLabel = gameSpeed === 1.5 ? '1.5×' : `${gameSpeed}×`;
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !soundMenuOpen) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
+        setSoundMenuOpen(false);
       }
     };
     const handleKey = (e: KeyboardEvent) => {
@@ -72,6 +86,7 @@ export function TopHudBar({
         e.preventDefault();
         e.stopImmediatePropagation();
         setMenuOpen(false);
+        setSoundMenuOpen(false);
       }
     };
     window.addEventListener('pointerdown', handlePointerDown);
@@ -80,7 +95,7 @@ export function TopHudBar({
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('keydown', handleKey, true);
     };
-  }, [menuOpen]);
+  }, [menuOpen, soundMenuOpen]);
 
   const btnSize = compact ? 'w-9 h-9' : 'w-11 h-11';
   const iconSize = compact ? 'w-4 h-4' : 'w-5 h-5';
@@ -168,6 +183,100 @@ export function TopHudBar({
                   )}
                 </div>
                 <SilverSwordPixelIcon className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ZOOM & VOLUME TRAY */}
+        <div className="pointer-events-auto shrink-0 self-center">
+          <div className="relative hud-stone-frame p-1">
+            {!compact && <StoneBrassStud className="absolute bottom-0.5 left-0.5 w-2 h-2 z-10" />}
+            <div
+              dir="ltr"
+              className={`hud-wood-tray flex items-center ${
+                compact ? 'gap-1 px-1.5 py-1' : 'gap-2 px-2.5 py-1.5'
+              }`}
+            >
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onZoomOut();
+                  }}
+                  aria-label="کوچک‌نمایی"
+                  title="کوچک‌نمایی"
+                  className={`${
+                    compact ? 'w-7 h-7 text-sm' : 'w-8 h-8 text-base'
+                  } hud-wood-btn font-black text-[#f3bd59] flex items-center justify-center cursor-pointer`}
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onResetZoom();
+                  }}
+                  aria-label="بازنشانی زوم"
+                  title="بازنشانی زوم به ۱×"
+                  className={`${
+                    compact ? 'h-7 px-1.5 text-[10px]' : 'h-8 px-2 text-xs'
+                  } hud-wood-btn font-num font-black flex items-center justify-center cursor-pointer ${
+                    zoomLevel > 1.05 ? '!border-[#facc15] text-[#fef08a]' : 'text-[#e2d4b7]'
+                  }`}
+                >
+                  {zoomLevel.toFixed(1)}×
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onZoomIn();
+                  }}
+                  aria-label="بزرگ‌نمایی"
+                  title="بزرگ‌نمایی"
+                  className={`${
+                    compact ? 'w-7 h-7 text-sm' : 'w-8 h-8 text-base'
+                  } hud-wood-btn font-black text-[#f3bd59] flex items-center justify-center cursor-pointer`}
+                >
+                  +
+                </button>
+              </div>
+              <span className="w-px h-5 bg-[#181b22]" aria-hidden="true" />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onToggleMute();
+                  }}
+                  aria-label={muted ? 'وصل صدا' : 'قطع صدا'}
+                  className={`${
+                    compact ? 'w-7 h-7' : 'w-8 h-8'
+                  } hud-wood-btn flex items-center justify-center cursor-pointer ${
+                    muted ? '!border-[#f87171]/70' : ''
+                  }`}
+                >
+                  <WoodSpeakerIcon muted={muted} className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={muted ? 0 : Math.round(masterVolume * 100)}
+                  onChange={(e) => onChangeVolume(Number(e.target.value) / 100)}
+                  aria-label="تنظیم میزان صدا"
+                  className={`${compact ? 'w-12' : 'w-20'} h-1.5 accent-[#f3bd59] cursor-pointer`}
+                />
+                <span
+                  className={`font-num font-bold text-[#fef3c7] ${
+                    compact ? 'text-[10px] w-7' : 'text-xs w-8'
+                  } text-right`}
+                >
+                  {muted ? '۰٪' : `${Math.round(masterVolume * 100)}%`}
+                </span>
               </div>
             </div>
           </div>
@@ -347,27 +456,68 @@ export function TopHudBar({
                 )}
               </button>
 
-              {/* 2. Sound Mute [M] */}
-              <button
-                type="button"
-                aria-pressed={muted}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  onToggleMute();
-                }}
-                aria-label={muted ? 'فعال کردن صدا (M)' : 'قطع صدا (M)'}
-                title={muted ? 'فعال کردن صدا (کلید M)' : 'قطع صدا (کلید M)'}
-                className={`relative ${btnSize} hud-wood-btn flex items-center justify-center cursor-pointer ${
-                  muted ? '!border-[#f87171]/70' : ''
-                }`}
-              >
-                <WoodSpeakerIcon muted={muted} className={iconSize} />
-                {!compact && (
-                  <span className="hud-keycap absolute -bottom-1 -right-1 px-1 text-[8px] font-num font-bold leading-tight">
-                    M
-                  </span>
+              {/* 2. Sound Settings & Mute [M] */}
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-pressed={soundMenuOpen || muted}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    setMenuOpen(false);
+                    setSoundMenuOpen((prev) => !prev);
+                  }}
+                  aria-label="تنظیمات صدا"
+                  title="تنظیم میزان صدا و قطع/وصل"
+                  className={`relative ${btnSize} hud-wood-btn flex items-center justify-center cursor-pointer ${
+                    muted ? '!border-[#f87171]/70' : soundMenuOpen ? '!border-[#fde047]' : ''
+                  }`}
+                >
+                  <WoodSpeakerIcon muted={muted} className={iconSize} />
+                  {!compact && (
+                    <span className="hud-keycap absolute -bottom-1 -right-1 px-1 text-[8px] font-num font-bold leading-tight">
+                      M
+                    </span>
+                  )}
+                </button>
+
+                {soundMenuOpen && (
+                  <div className="absolute left-0 top-full mt-2 w-56 hud-stone-frame p-1 z-50">
+                    <div className="hud-wood-tray p-2.5 flex flex-col gap-2 text-xs font-bold">
+                      <div className="flex items-center justify-between text-[11px] text-[#d6b472]">
+                        <span>میزان صدا</span>
+                        <span className="font-num text-[#fef3c7]">
+                          {muted ? '۰٪ (قطع)' : `${Math.round(masterVolume * 100)}٪`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={muted ? 0 : Math.round(masterVolume * 100)}
+                        onChange={(e) => onChangeVolume(Number(e.target.value) / 100)}
+                        aria-label="تنظیم میزان صدا"
+                        className="w-full accent-amber-400 cursor-pointer"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={onToggleMute}
+                          className="flex-1 min-h-[34px] hud-wood-btn px-2 py-1 text-[11px] text-[#f6efe0] cursor-pointer"
+                        >
+                          {muted ? 'وصل صدا' : 'قطع صدا'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onToggleMusic}
+                          className="flex-1 min-h-[34px] hud-wood-btn px-2 py-1 text-[11px] text-[#f6efe0] cursor-pointer"
+                        >
+                          موسیقی: {musicMuted || muted ? 'خاموش' : 'روشن'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
-              </button>
+              </div>
 
               {/* 3. Game Speed [F] */}
               <button
@@ -527,4 +677,4 @@ export function TopHudBar({
       </div>
     </header>
   );
-}
+});
