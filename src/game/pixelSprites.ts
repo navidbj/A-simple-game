@@ -44,7 +44,7 @@ function bakeFlippedSprite(src: HTMLCanvasElement): HTMLCanvasElement {
   return c;
 }
 
-// 1. Detailed 24x22 16-bit Pixel-Art Castle Fortress Sprite
+// 1. Detailed 24x22 16-bit Pixel-Art High Fantasy Castle Fortress Sprite
 const CASTLE_GRID = [
   '...........K............',
   '..........KRR...........',
@@ -74,7 +74,7 @@ const CASTLE_GRID_FLASH = CASTLE_GRID.map((r) =>
   r.replace(/[SLDMGAB]/g, 'W')
 );
 
-// 1b. Compact 18x18 Outpost Keep (for small/neutral garrisons)
+// 1b. Compact 18x18 Timber & Stone Outpost Keep (for small/neutral garrisons)
 const CASTLE_SMALL_GRID = [
   '........K.........',
   '.......KRR........',
@@ -100,7 +100,7 @@ const CASTLE_SMALL_FLASH = CASTLE_SMALL_GRID.map((r) =>
   r.replace(/[SLDMGB]/g, 'W')
 );
 
-// 1c. Majestic 26x25 Grand Imperial Citadel (for powerful fortified strongholds)
+// 1c. Majestic 26x25 Grand Imperial Marble & Gold Citadel (for powerful fortified strongholds)
 const CASTLE_GRAND_GRID = [
   '............K.............',
   '...........KRR............',
@@ -203,18 +203,18 @@ const ELITE_FRAME_B = [
   '..............',
 ];
 
-// 4. Pixel-Art Constructed Building Annex Sprites — 3 Distinct Clash-of-Clans Visual Tiers (Lv.1 -> Lv.2 -> Lv.3)
+// 4. Pixel-Art Constructed Building Annex Sprites — High Fantasy Medieval Theme (Lv.1 Timber & Stone -> Lv.2 Dressed Stone & Faction Slate -> Lv.3 Ivory Marble & Gold)
 
-// 4a. BARRACKS: Lv.1 Canvas Tent (14x10) -> Lv.2 Fortified Stone Garrison (16x13) -> Lv.3 Gilded Royal War Academy (18x16)
+// 4a. BARRACKS: Lv.1 Timber & Stone Camp (14x10) -> Lv.2 Dressed-Stone Garrison (16x13) -> Lv.3 Gilded Marble Knight Academy (18x16)
 const BARRACKS_LV1_GRID = [
   '......K.......',
   '.....KRR......',
   '.....K........',
-  '....KWWK......',
-  '...KWRRWK.....',
-  '..KWWWRWWK....',
-  '.KWWKRRKWWK...',
-  '.KWWKDDKWWK...',
+  '....KMMK......',
+  '...KMRRMK.....',
+  '..KBBBBBBK....',
+  '.KBBKRRKBBK...',
+  '.KBSKDDKSBK...',
   '.KSSKDDKSSK...',
   '.KKKKKKKKKK...',
 ];
@@ -228,9 +228,9 @@ const BARRACKS_LV2_GRID = [
   '.KMKMRRRMKMK....',
   '.KLLRRRRRLLK....',
   '.KLSKMMMKSLK....',
-  '.KSSKRRRKSSK....',
-  '.KSSKDDDKSSK....',
-  '.KDSKDDDKSDK....',
+  '.KSSKBBBKSSK....',
+  '.KSSKBDKSSSK....',
+  '.KDSKBDDKSDK....',
   '.KDDKDDDKDDK....',
   '.KKKKKKKKKKK....',
 ];
@@ -243,25 +243,25 @@ const BARRACKS_LV3_GRID = [
   '.KGY..KGY..KGY....',
   '.KAK.KGGGK.KAK....',
   'KGRGKGMRMGKGRGK...',
-  'KLLGGRRRRRGGLLK...',
-  'KLSKGGMMMGKKSLK...',
-  'KSSKGRGYGRKKSSK...',
+  'KWWGGRRRRRGGWWK...',
+  'KWLKGGMMMGKKLWK...',
+  'KWWKGRGYGRKKWWK...',
   'KSSKGDDDDGKKSSK...',
-  'KDSKGDDYDGKKSDK...',
+  'KLSKGDDYDGKKSLK...',
   'KSSKGDDDDGKKSSK...',
   'KDDKGGGGGGKKDDK...',
   'KKKKKKKKKKKKKKK...',
   '..................',
 ];
 
-// 4b. DEFENSE TOWER: Lv.1 Stone Watchtower (10x12) -> Lv.2 Iron Crystal Bastion (12x16) -> Lv.3 Obsidian & Gold Arcane Spire (14x19)
+// 4b. DEFENSE TOWER: Lv.1 Timber & Stone Watchtower (10x12) -> Lv.2 Iron-Bound Stone Bastion (12x16) -> Lv.3 Gilded Marble Arcane Spire (14x19)
 const TOWER_LV1_GRID = [
   '.K.K.K.K..',
-  '.KKKKKKK..',
-  '.KLLLLLK..',
+  '.KBBBBBK..',
+  '.KBbYbBK..',
+  '..KBBBK...',
   '..KSSSK...',
-  '..KSBSK...',
-  '..KSBSK...',
+  '..KSDSK...',
   '..KSSSK...',
   '..KSDDK...',
   '..KSSSK...',
@@ -296,26 +296,26 @@ const TOWER_LV3_GRID = [
   '....KCCBCK....',
   '.....KBBK.....',
   '.K..KKGGKK..K.',
-  'KGGKGLLLLGKGGK',
-  '.KKGIICCIIGKK.',
-  '..KGICBBCIGK..',
-  '..KGIICCIIGK..',
-  '..KGIDBBDIGK..',
-  '..KGGIIIIIGK..',
-  '..KGICBBCIGK..',
-  '..KGIIDDIIGK..',
-  '.KKGGIIIIGGKK.',
-  '.KGIIIGGGIIIGK',
-  '.KIDDDGGGDDDIK',
+  'KGGKGWWWWGKGGK',
+  '.KKGWLLCCLLGKK',
+  '..KGWLCBBLWGK.',
+  '..KGWLLCCLLGK.',
+  '..KGLWDBBDWGK.',
+  '..KGGWWWWWGGK.',
+  '..KGWLCBBLWGK.',
+  '..KGWWLDDWWGK.',
+  '.KKGGWWLLWGGKK',
+  '.KGWLLGGGGLLWK',
+  '.KLDDDGGGGDDDK',
   '.KGGGGGGGGGGGK',
   '.KKKKKKKKKKKKK',
 ];
 
-// 4c. MINE & MARKET: Lv.1 Wooden Tunnel (12x8) -> Lv.2 Stone Quarry & Gold Carts (15x11) -> Lv.3 Golden-Domed Royal Treasury (16x13)
+// 4c. MINE & MARKET: Lv.1 Timber-Braced Mine (12x8) -> Lv.2 Stone Quarry & Guild Market (15x11) -> Lv.3 Gilded Marble Royal Treasury (16x13)
 const MINE_LV1_GRID = [
   '....KKKK....',
   '..KKBBBBKK..',
-  '.KBBGGGGbbK.',
+  '.KBBSSSSbbK.',
   '.KBDKKKKDBK.',
   '.KBDKGGKDBK.',
   '.KBDKGYKDBK.',
@@ -327,7 +327,7 @@ const MINE_LV2_GRID = [
   '.....KKKKK.....',
   '...KKLLLLLKK...',
   '..KLLSSSSSLLK..',
-  '.KLSSGGGGSSSLK.',
+  '.KLSSBBBBSSSLK.',
   '.KLSKKKKKKKKSLK',
   '.KLSKDDGGDDKSLK',
   '.KDSKDGGYGDKSDK',
@@ -343,22 +343,22 @@ const MINE_LV3_GRID = [
   '...KYYGGGGYYK...',
   '..KYGGYYYYGGYK..',
   '.KKGGGGGGGGGGKK.',
-  '.KLLGGRRRRGGLLK.',
-  '.KLSKGGGGGGKSLK.',
-  '.KLSKGYYYYGKSLK.',
-  '.KLSKGYGGYGKSLK.',
+  '.KWWGGRRRRGGWWK.',
+  '.KWLKGGGGGGKLWK.',
+  '.KWSKGYYYYGKSWK.',
+  '.KWLKGYGGYGKLWK.',
   '.KDSKGYYYYGKSDK.',
   'KKGGKGGGGGGKGGKK',
   'KYYYYGGGGGGYYYYK',
   'KKKKKKKKKKKKKKKK',
 ];
 
-// 4d. WAR FORGE: Lv.1 Brick Smithy (12x9) -> Lv.2 Twin-Chimney Steel Foundry (15x12) -> Lv.3 Volcanic Gold Dragon-Forge (16x15)
+// 4d. WAR FORGE: Lv.1 Timber & Stone Smithy (12x9) -> Lv.2 Twin-Chimney Steel Foundry (15x12) -> Lv.3 Gilded Marble Dragon-Forge (16x15)
 const FORGE_LV1_GRID = [
   '........KK..',
   '.......KCCK.',
   '..KKKK.KSSK.',
-  '.KMMMMKKSSK.',
+  '.KBBBBKKSSK.',
   '.KDDDDKKSSK.',
   '.KDOODKSSSK.',
   '.KDOYDKSSSK.',
@@ -384,30 +384,30 @@ const FORGE_LV2_GRID = [
 const FORGE_LV3_GRID = [
   '.KK....KK....KK.',
   'KGGK..KOOY..KGGK',
-  '.KIK.KOOOOYK.KIK',
-  '.KIK.KGGGGGKKIK.',
-  '.KIGKIIOOIIKGIK.',
-  'KGGIIIIGGIIIIGGK',
-  'KIIGGMMMMMMGGIIK',
-  'KIGGKKKKKKKKGGIK',
-  'KIDKOOYYYYOOKDIK',
-  'KIDKOYYWWYYOKDIK',
-  'KIDKOYYYYYYOKDIK',
-  'KIGKOOOOOOOOOKGK',
+  '.KWK.KOOOOYK.KWK',
+  '.KWK.KGGGGGKKWK.',
+  '.KWGKIIOOIIKGWK.',
+  'KGGWWWIIGGWWIGGK',
+  'KWWGGMMMMMMGGWWK',
+  'KWGGKKKKKKKKGGWK',
+  'KWDKOOYYYYOOKDWK',
+  'KWDKOYYWWYYOKDWK',
+  'KWDKOYYYYYYOKDWK',
+  'KWGKOOOOOOOOOKGK',
   'KGGKKKKKKKKKKGGK',
   'KDDGGGGGGGGGGDDK',
   'KKKKKKKKKKKKKKKK',
 ];
 
-// 4e. PORT: Lv.1 Wooden Pier (14x11) -> Lv.2 Stone Harbor & Crane (16x13) -> Lv.3 Grand Gilded Royal Harbor (18x15)
+// 4e. PORT: Lv.1 Timber Pier (14x11) -> Lv.2 Stone Harbor & Crane (16x13) -> Lv.3 Grand Gilded Marble Harbor (18x15)
 const PORT_LV1_GRID = [
   '..KK..........',
   '.KYYK.........',
-  '.KWWK....K....',
+  '.KBBK....K....',
   '.KRRK...KPK...',
-  '.KWWK...KPPK..',
+  '.KBBK...KPPK..',
   '.KRRK...KPK...',
-  'KWWWWKKKKKKK..',
+  'KBBBBKKKKKKK..',
   'KBBBBBBBBBBBK.',
   'KDBDBDBDBDBDK.',
   '.K.K..K..K.K..',
@@ -438,10 +438,10 @@ const PORT_LV3_GRID = [
   '..KRRK.KRR..KGGK..',
   '..KWWK.K...KGRRGK.',
   '..KRRK.K...KGGGGK.',
-  '.KGWWGKKGGKKLLLLK.',
+  '.KGWWGKKGGKKWWWWK.',
   'KGGGGGGGGGGGGGGGGK',
+  'KWWLLGWWLLGWWLLWWK',
   'KLLSSGLLSSGLLSSLLK',
-  'KSSSSGSSSSGSSSSSSK',
   'KDDDDGDDDDGDDDDDDK',
   'KKKKKKKKKKKKKKKKKK',
   '.KG..KG..KG..KG...',
